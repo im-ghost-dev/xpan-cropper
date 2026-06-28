@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>XPAN Interactive Cropper v2</title>
+    <style>
+        :root {
+            --bg: #0c0c0d;
+            --panel: #161618;
+            --panel-2: #1d1d20;
+            --line: #2c2c30;
+            --line-soft: #232327;
+            --text: #ececec;
+            --muted: #8a8a90;
+            --faint: #5a5a60;
+            --accent: #ff5a1f;
+            --accent-dim: #c7430f;
+            --metal-1: #3a3a3e;
+            --metal-2: #1a1a1c;
+            --green: #22c55e;
+            --amber: #f59e0b;
+            --blue: #3b82f6;
+            --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; }
+
+        body {
+            font-family: var(--sans);
+            background: radial-gradient(1200px 600px at 50% -10%, #18181b 0%, transparent 60%), var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 18px 14px 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ---------- Header ---------- */
+        header {
+            width: 100%;
+            max-width: 860px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .brand { display: flex; align-items: baseline; gap: 10px; }
+        .brand .mark {
+            font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.32em;
+            color: var(--accent); text-transform: uppercase; font-weight: 700;
+        }
+        .brand h1 {
+            font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; margin: 0; color: var(--text);
+        }
+        .brand h1 span { color: var(--muted); font-weight: 400; }
+        .ratio-tag {
+            font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; color: var(--muted);
+            border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+            background: var(--panel); white-space: nowrap;
+        }
+
+        /* ---------- Stage ---------- */
+        .stage {
+            width: 100%; max-width: 860px;
+            background: linear-gradient(180deg, #161618 0%, #131315 100%);
+            border: 1px solid var(--line); border-radius: 16px; padding: 14px;
+            box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 24px 60px -28px rgba(0,0,0,0.9);
+        }
+
+        #canvasContainer {
+            position: relative; width: 100%;
+            background: repeating-linear-gradient(90deg, #0a0a0b 0 14px, #0e0e10 14px 28px), #000;
+            border: 1px solid var(--line-soft); border-radius: 10px;
+            touch-action: none; overflow: hidden;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.6) inset; min-height: 180px;
+        }
+        /* Drop-zone highlight */
+        #canvasContainer.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+
+        canvas { display: block; width: 100%; height: auto; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+
+        .empty {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 10px;
+            text-align: center; padding: 24px; color: var(--faint); pointer-events: none;
+        }
+        .empty.hidden { display: none; }
+        .empty .ico {
+            width: 56px; height: 56px; border: 1.5px dashed var(--line); border-radius: 14px;
+            display: grid; place-items: center; color: var(--muted);
+        }
+        .empty .ico svg { width: 28px; height: 28px; }
+        .empty p { margin: 0; font-size: 0.85rem; color: var(--muted); }
+        .empty small { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.06em; color: var(--faint); }
+
+        /* Overlays */
+        .readout {
+            position: absolute; left: 12px; bottom: 12px;
+            font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; color: var(--text);
+            background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            padding: 5px 9px; border-radius: 7px; opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
+        }
+        .readout.show { opacity: 1; }
+        .readout b { color: var(--accent); font-weight: 600; }
+
+        /* Upscale status badge */
+        #upscaleBadge {
+            position: absolute; right: 12px; bottom: 12px;
+            font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.06em;
+            background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            padding: 5px 10px; border-radius: 7px; display: none; pointer-events: none;
+        }
+        #upscaleBadge.show { display: block; }
+        #upscaleBadge.ready { color: var(--green); border-color: rgba(34,197,94,0.3); }
+        #upscaleBadge.working { color: var(--amber); border-color: rgba(245,158,11,0.3); }
+        #upscaleBadge.error { color: #f87171; border-color: rgba(248,113,113,0.3); }
+
+        .hint {
+            font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.04em;
+            color: var(--faint); text-align: center; margin-top: 12px;
+        }
+        .hint span { color: var(--muted); }
+
+        /* ---------- Controls ---------- */
+        .controls { width: 100%; max-width: 860px; margin-top: 18px; display: flex; flex-direction: column; gap: 14px; }
+        .row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+
+        .field-label {
+            font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.22em;
+            text-transform: uppercase; color: var(--faint); margin-bottom: 7px; display: block;
+        }
+
+        .btn {
+            appearance: none; border: 1px solid var(--line);
+            background: linear-gradient(180deg, var(--panel-2), var(--panel));
+            color: var(--text); border-radius: 10px; font-size: 0.86rem; font-weight: 500;
+            letter-spacing: 0.02em; padding: 13px 16px; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            transition: border-color 0.15s ease, background 0.15s ease, transform 0.05s ease, opacity 0.15s ease;
+            user-select: none; font-family: var(--sans);
+        }
+        .btn:hover { border-color: #3a3a40; }
+        .btn:active { transform: translateY(1px); }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+        .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+        .btn-ghost { flex: 1; min-width: 120px; }
+
+        .file-btn { position: relative; overflow: hidden; }
+        .file-btn input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 200px; }
+
+        .btn-accent {
+            flex: 1; min-width: 140px;
+            background: linear-gradient(180deg, #ff6a33, var(--accent));
+            border-color: var(--accent-dim); color: #1a0a02; font-weight: 700;
+            box-shadow: 0 8px 22px -10px rgba(255,90,31,0.6);
+        }
+        .btn-accent:hover { border-color: #ff7a47; }
+        .btn-accent:disabled {
+            background: linear-gradient(180deg, var(--panel-2), var(--panel));
+            color: var(--faint); border-color: var(--line); box-shadow: none; opacity: 0.6;
+        }
+
+        /* Segmented control */
+        .segment {
+            display: inline-flex; background: var(--metal-2); border: 1px solid var(--line);
+            border-radius: 10px; padding: 4px; gap: 4px;
+        }
+        .segment button {
+            appearance: none; border: none; background: transparent; color: var(--muted);
+            font-family: var(--sans); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
+            padding: 8px 14px; border-radius: 7px; cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease; white-space: nowrap;
+        }
+        .segment button.active {
+            background: linear-gradient(180deg, var(--metal-1), #2a2a2e); color: var(--text);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset;
+        }
+        .segment button .dot {
+            display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+            margin-right: 6px; vertical-align: middle; background: var(--faint);
+        }
+        .segment button.active .dot { background: var(--accent); }
+
+        /* Look select */
+        .look-select {
+            appearance: none; -webkit-appearance: none; width: 100%;
+            background-color: var(--panel-2); border: 1px solid var(--line);
+            color: var(--text); border-radius: 10px; font-family: var(--sans);
+            font-size: 0.86rem; font-weight: 600; letter-spacing: 0.02em;
+            padding: 13px 38px 13px 14px; cursor: pointer;
+            background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+            background-position: right 16px center, right 11px center;
+            background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+            transition: border-color 0.15s ease;
+        }
+        .look-select:hover { border-color: #3a3a40; }
+        .look-select optgroup { background: var(--panel); color: var(--accent); font-family: var(--mono); font-size: 0.7rem; }
+        .look-select option { background: var(--panel); color: var(--text); font-weight: 500; }
+
+        /* Slider row */
+        .slider-row {
+            display: flex; flex-direction: column; gap: 10px;
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: 12px; padding: 14px 16px;
+        }
+        .slider-item { display: flex; align-items: center; gap: 12px; }
+        .slider-item label {
+            font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--faint); width: 76px; flex-shrink: 0;
+        }
+        .slider-item input[type="range"] {
+            flex: 1; -webkit-appearance: none; appearance: none;
+            height: 3px; border-radius: 2px; background: var(--line); cursor: pointer; outline: none;
+        }
+        .slider-item input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+            background: var(--text); border: 2px solid var(--panel-2); cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        }
+        .slider-item input[type="range"]::-moz-range-thumb {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--text); border: 2px solid var(--panel-2); cursor: pointer;
+        }
+        .slider-val {
+            font-family: var(--mono); font-size: 0.68rem; color: var(--muted);
+            width: 40px; text-align: right; flex-shrink: 0;
+        }
+
+        /* Ratio input group */
+        .ratio-group { display: flex; gap: 8px; align-items: center; }
+        .ratio-input {
+            width: 64px; padding: 10px 10px; background: var(--panel-2);
+            border: 1px solid var(--line); color: var(--text); border-radius: 8px;
+            font-family: var(--mono); font-size: 0.86rem; text-align: center; outline: none;
+        }
+        .ratio-input:focus { border-color: var(--accent); }
+        .ratio-sep { color: var(--faint); font-family: var(--mono); font-size: 1rem; }
+
+        .controls-grid {
+            display: flex; justify-content: space-between; align-items: flex-end;
+            gap: 12px; flex-wrap: wrap;
+        }
+        .ctl-block { display: flex; flex-direction: column; }
+        .ctl-block.grow { flex: 1; min-width: 160px; }
+
+        /* Section divider */
+        .section-label {
+            font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.28em;
+            text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 10px;
+        }
+        .section-label::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+        /* AI panel */
+        .ai-panel {
+            background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .ai-panel-header { display: flex; align-items: center; justify-content: space-between; }
+        .ai-label {
+            font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.2em;
+            text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 7px;
+        }
+        .ai-badge {
+            font-size: 0.55rem; letter-spacing: 0.12em; padding: 2px 7px; border-radius: 999px;
+            border: 1px solid; font-weight: 700;
+        }
+        .ai-badge.gpu { color: var(--blue); border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.08); }
+        .ai-badge.cpu { color: var(--amber); border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+        .ai-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+        .ai-desc b { color: var(--text); font-weight: 600; }
+
+        /* Toggle switch */
+        .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+        .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle-track {
+            position: absolute; inset: 0; background: var(--line); border-radius: 999px; cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .toggle input:checked + .toggle-track { background: var(--accent); }
+        .toggle-thumb {
+            position: absolute; top: 3px; left: 3px;
+            width: 16px; height: 16px; background: #fff; border-radius: 50%;
+            transition: transform 0.2s ease; pointer-events: none;
+        }
+        .toggle input:checked ~ .toggle-thumb { transform: translateX(16px); }
+        .toggle-label { font-size: 0.82rem; color: var(--muted); }
+        .toggle-label b { color: var(--text); }
+
+        /* Progress bar */
+        .progress-wrap { display: flex; flex-direction: column; gap: 6px; display: none; }
+        .progress-wrap.show { display: flex; }
+        .progress-bar-bg { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.3s ease; }
+        .progress-text { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; color: var(--muted); }
+
+        footer {
+            width: 100%; max-width: 860px; margin-top: 24px; text-align: center;
+            font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.14em;
+            color: var(--faint); text-transform: uppercase;
+        }
+
+        @media (max-width: 560px) {
+            .brand h1 { font-size: 0.95rem; }
+            .controls-grid { flex-direction: column; align-items: stretch; }
+            .segment { width: 100%; }
+            .segment button { flex: 1; padding: 8px 8px; }
+            .ratio-group { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand">
+        <span class="mark">Hasselblad</span>
+        <h1>XPAN <span>Cropper</span></h1>
+    </div>
+    <div class="ratio-tag" id="ratioDisplay">65 : 24 · 2.71:1</div>
+</header>
+
+<div class="stage">
+    <div id="canvasContainer">
+        <canvas id="previewCanvas"></canvas>
+        <div class="empty" id="emptyState">
+            <div class="ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 16V4"/><path d="M8 8l4-4 4 4"/>
+                    <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+                </svg>
+            </div>
+            <p>Drop a photo here or load below</p>
+            <small>JPEG · PNG · WebP · HEIC (Safari/iOS)</small>
+        </div>
+        <div class="readout" id="readout">ZOOM <b id="zoomVal">1.00×</b></div>
+        <div class="readout" id="rotReadout" style="left:auto;right:12px;bottom:12px;">ROT <b id="rotVal">0°</b></div>
+        <div id="upscaleBadge">⬆ UPSCALED 4×</div>
+    </div>
+    <div class="hint">Drag to pan <span>·</span> Pinch / scroll to zoom <span>·</span> Double-tap to reset</div>
+</div>
+
+<div class="controls">
+
+    <!-- Source + Look -->
+    <div class="controls-grid">
+        <div class="ctl-block grow">
+            <span class="field-label">Source</span>
+            <label class="btn btn-ghost file-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 16V4"/><path d="M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+                </svg>
+                Load Photo
+                <input type="file" id="imageInput" accept="image/*">
+            </label>
+        </div>
+        <div class="ctl-block grow">
+            <span class="field-label">Film Look</span>
+            <select id="lookSelect" class="look-select">
+                <optgroup label="─ Hasselblad">
+                    <option value="hb_natural" selected>Natural Color</option>
+                    <option value="hb_bw">XPan B&amp;W</option>
+                </optgroup>
+                <optgroup label="─ Kodak Color">
+                    <option value="portra400">Portra 400</option>
+                    <option value="portra160">Portra 160</option>
+                    <option value="gold200">Gold 200</option>
+                    <option value="ultramax400">UltraMax 400</option>
+                    <option value="ektar100">Ektar 100</option>
+                    <option value="ektachrome">Ektachrome E100</option>
+                    <option value="kodachrome64">Kodachrome 64</option>
+                </optgroup>
+                <optgroup label="─ Kodak B&amp;W">
+                    <option value="trix400">Tri-X 400</option>
+                    <option value="tmax100">T-MAX 100</option>
+                    <option value="tmax3200">T-MAX P3200</option>
+                </optgroup>
+                <optgroup label="─ Fujifilm Color">
+                    <option value="fuji_provia">Provia 100F (RDP III)</option>
+                    <option value="fuji_velvia50">Velvia 50</option>
+                    <option value="fuji_velvia100">Velvia 100</option>
+                    <option value="fuji_astia">Astia 100F (RAF)</option>
+                    <option value="fuji_superia400">Superia 400</option>
+                    <option value="fuji_400h">Pro 400H</option>
+                </optgroup>
+                <optgroup label="─ Fujifilm B&amp;W">
+                    <option value="fuji_acros">Acros 100 II</option>
+                    <option value="fuji_neopan400">Neopan 400</option>
+                </optgroup>
+                <optgroup label="─ Ilford B&amp;W">
+                    <option value="ilford_hp5">HP5 Plus 400</option>
+                    <option value="ilford_delta3200">Delta 3200</option>
+                    <option value="ilford_fp4">FP4 Plus 125</option>
+                    <option value="ilford_xp2">XP2 Super 400</option>
+                </optgroup>
+                <optgroup label="─ Cinematic">
+                    <option value="cinestill800t">CineStill 800T</option>
+                    <option value="cinestill50d">CineStill 50D</option>
+                    <option value="vision3_500t">Vision3 500T</option>
+                </optgroup>
+            </select>
+        </div>
+    </div>
+
+    <!-- Crop ratio -->
+    <div>
+        <span class="field-label">Crop Ratio</span>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="segment" id="ratioPresets">
+                <button class="active" data-w="65" data-h="24"><span class="dot"></span>XPan</button>
+                <button data-w="3" data-h="1"><span class="dot"></span>3:1</button>
+                <button data-w="2" data-h="1"><span class="dot"></span>2:1</button>
+                <button data-w="16" data-h="9"><span class="dot"></span>16:9</button>
+                <button data-w="7" data-h="3"><span class="dot"></span>7:3</button>
+                <button data-w="0" data-h="0"><span class="dot"></span>Custom</button>
+            </div>
+            <div class="ratio-group" id="customRatioWrap" style="display:none;">
+                <input type="number" id="ratioW" class="ratio-input" min="1" max="99" value="65" placeholder="W">
+                <span class="ratio-sep">:</span>
+                <input type="number" id="ratioH" class="ratio-input" min="1" max="99" value="24" placeholder="H">
+            </div>
+        </div>
+    </div>
+
+    <!-- Rotation & Adjustments -->
+    <div class="slider-row">
+        <div class="slider-item">
+            <label>Rotation</label>
+            <input type="range" id="rotSlider" min="-45" max="45" step="0.5" value="0">
+            <span class="slider-val" id="rotDisplay">0°</span>
+        </div>
+        <div class="slider-item">
+            <label>Brightness</label>
+            <input type="range" id="brightSlider" min="-100" max="100" step="1" value="0">
+            <span class="slider-val" id="brightDisplay">0</span>
+        </div>
+        <div class="slider-item">
+            <label>Contrast</label>
+            <input type="range" id="contrastSlider" min="-100" max="100" step="1" value="0">
+            <span class="slider-val" id="contrastDisplay">0</span>
+        </div>
+        <div class="slider-item">
+            <label>Saturation</label>
+            <input type="range" id="satSlider" min="-100" max="100" step="1" value="0">
+            <span class="slider-val" id="satDisplay">0</span>
+        </div>
+        <div class="slider-item">
+            <label>Grain Seed</label>
+            <input type="range" id="grainSeedSlider" min="0" max="999" step="1" value="42">
+            <span class="slider-val" id="grainSeedDisplay">42</span>
+        </div>
+    </div>
+
+    <!-- AI Upscaling Panel -->
+    <div class="section-label">AI Upscaling</div>
+    <div class="ai-panel">
+        <div class="ai-panel-header">
+            <div class="ai-label">
+                Swin2SR 4× Super-Resolution
+                <span class="ai-badge gpu" id="gpuBadge">WebGPU</span>
+                <span class="ai-badge cpu" id="cpuBadge" style="display:none;">CPU / WASM</span>
+            </div>
+            <div class="toggle-wrap">
+                <label class="toggle">
+                    <input type="checkbox" id="upscaleToggle">
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                </label>
+                <span class="toggle-label">Upscale on export</span>
+            </div>
+        </div>
+        <div class="ai-desc">
+            Runs <b>Swin2SR</b> (realworld 4× variant) on the cropped region before export — prevents resolution loss from cropping a small section of a large image.
+            Model runs entirely <b>in-browser</b> via Transformers.js + ONNX Runtime. First run downloads ~25 MB and caches to IndexedDB — instant on next use.
+        </div>
+        <div class="progress-wrap" id="upscaleProgress">
+            <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText">Initialising…</div>
+        </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="row">
+        <button id="undoBtn" class="btn btn-ghost" disabled title="Undo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7h10a6 6 0 0 1 0 12H5"/><path d="M3 7l4-4M3 7l4 4"/>
+            </svg>
+            Undo
+        </button>
+        <button id="redoBtn" class="btn btn-ghost" disabled title="Redo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 7H11a6 6 0 0 0 0 12h8"/><path d="M21 7l-4-4M21 7l-4 4"/>
+            </svg>
+            Redo
+        </button>
+        <button id="resetBtn" class="btn btn-ghost" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/>
+            </svg>
+            Reset View
+        </button>
+        <button id="exportBtn" class="btn btn-accent" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 4v12"/><path d="M8 12l4 4 4-4"/><path d="M4 20h16"/>
+            </svg>
+            Export Image
+        </button>
+    </div>
+</div>
+
+<footer>XPAN Panoramic · 65×24mm Simulation · v2.0 By ❤️ G.H.O.S.T</footer>
+
+<script>
+// ============================================================
+//  DOM references
+// ============================================================
+const canvas        = document.getElementById('previewCanvas');
+const ctx           = canvas.getContext('2d');
+const imageInput    = document.getElementById('imageInput');
+const lookSelect    = document.getElementById('lookSelect');
+const exportBtn     = document.getElementById('exportBtn');
+const resetBtn      = document.getElementById('resetBtn');
+const undoBtn       = document.getElementById('undoBtn');
+const redoBtn       = document.getElementById('redoBtn');
+const emptyState    = document.getElementById('emptyState');
+const readout       = document.getElementById('readout');
+const zoomVal       = document.getElementById('zoomVal');
+const rotReadout    = document.getElementById('rotReadout');
+const rotValEl      = document.getElementById('rotVal');
+const upscaleBadge  = document.getElementById('upscaleBadge');
+const upscaleToggle = document.getElementById('upscaleToggle');
+const upscaleProgress = document.getElementById('upscaleProgress');
+const progressFill  = document.getElementById('progressFill');
+const progressText  = document.getElementById('progressText');
+const ratioDisplay  = document.getElementById('ratioDisplay');
+const ratioW        = document.getElementById('ratioW');
+const ratioH        = document.getElementById('ratioH');
+const customRatioWrap = document.getElementById('customRatioWrap');
+const gpuBadge      = document.getElementById('gpuBadge');
+const cpuBadge      = document.getElementById('cpuBadge');
+const canvasContainer = document.getElementById('canvasContainer');
+
+// Sliders
+const rotSlider      = document.getElementById('rotSlider');
+const brightSlider   = document.getElementById('brightSlider');
+const contrastSlider = document.getElementById('contrastSlider');
+const satSlider      = document.getElementById('satSlider');
+const grainSeedSlider = document.getElementById('grainSeedSlider');
+const rotDisplay     = document.getElementById('rotDisplay');
+const brightDisplay  = document.getElementById('brightDisplay');
+const contrastDisplay= document.getElementById('contrastDisplay');
+const satDisplay     = document.getElementById('satDisplay');
+const grainSeedDisplay = document.getElementById('grainSeedDisplay');
+
+// ============================================================
+//  State
+// ============================================================
+let img = null;
+let zoom = 1;
+let panX = 0, panY = 0;
+let rotation = 0;     // degrees
+let currentLook = 'hb_natural';
+let ratioNumerator = 65, ratioDenominator = 24;
+let XPAN_RATIO = ratioNumerator / ratioDenominator;
+
+let activeTouches = 0;
+let lastTouchX = 0, lastTouchY = 0;
+let lastPinchDist = 0;
+let lastTapTime = 0;
+
+let boxX = 0, boxY = 0, boxW = 0, boxH = 0;
+let MIN_ZOOM = 1, MAX_ZOOM = 10;
+
+let readoutTimer = null, rotReadoutTimer = null;
+
+// Adjustments
+let brightness = 0, contrast = 0, saturation = 0;
+let grainSeed = 42;
+
+// Undo/redo history: stores snapshots of { panX, panY, zoom, rotation, brightness, contrast, saturation }
+const historyStack = [];
+let historyIndex = -1;
+const MAX_HISTORY = 50;
+
+// AI upscaling
+let onnxSession = null;
+let onnxLoading = false;
+let useWebGPU = false;
+
+// ============================================================
+//  Seeded PRNG (Mulberry32) for deterministic grain
+// ============================================================
+function mulberry32(seed) {
+    return function() {
+        seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+        let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+// ============================================================
+//  Film Emulation Engine
+//  ─────────────────────────────────────────────────────────
+//  Colour parameters are measured/derived from densitometry
+//  data, spectral sensitivity curves and published community
+//  analysis (darktable film-simulation repo, Filmulator project,
+//  RawTherapee HSL film emulation tables). NOT the proprietary
+//  manufacturer LUT files — those are unpublished.
+//
+//  Per-channel curve params:
+//    lift     raise black point  (0 = true black kept)
+//    gain     pre-curve mult
+//    gamma    midtone (>1 brighter)
+//    contrast S-curve strength
+//    mult     final gain (colour cast)
+//    offset   final lift (colour cast)
+// ============================================================
+const FILMS = {
+    // ── Hasselblad ──────────────────────────────────────────
+    hb_natural: {
+        sat:1.06, grain:4,
+        r:{contrast:0.05,gamma:1.0, mult:1.0,  offset:0.0  },
+        g:{contrast:0.05,gamma:1.0, mult:1.0,  offset:0.0  },
+        b:{contrast:0.05,gamma:1.0, mult:0.99, offset:0.003}
+    },
+    hb_bw:{
+        bw:true, sat:0, grain:3,
+        k:{lift:0.0, contrast:0.06, gamma:1.0}
+    },
+
+    // ── Kodak Color ─────────────────────────────────────────
+    // Portra 400: lifted shadows, slight warmth, desaturated, portrait pleasing
+    portra400:{
+        sat:0.92, grain:8,
+        r:{lift:0.045,contrast:0.03,gamma:1.05,mult:1.03,offset:0.006},
+        g:{lift:0.040,contrast:0.03,gamma:1.04,mult:1.0, offset:0.004},
+        b:{lift:0.050,contrast:0.03,gamma:1.02,mult:0.95,offset:0.010}
+    },
+    // Portra 160: cleaner, less lifted, neutral to warm
+    portra160:{
+        sat:0.96, grain:4,
+        r:{lift:0.02, contrast:0.04,gamma:1.03,mult:1.02,offset:0.003},
+        g:{lift:0.018,contrast:0.04,gamma:1.02,mult:1.0, offset:0.002},
+        b:{lift:0.022,contrast:0.04,gamma:1.01,mult:0.97,offset:0.005}
+    },
+    // Gold 200: saturated, warm/orange push, heavier grain
+    gold200:{
+        sat:1.14, grain:10,
+        r:{lift:0.02, contrast:0.06,gamma:1.02,mult:1.07,offset:0.012},
+        g:{lift:0.02, contrast:0.05,gamma:1.0, mult:1.02,offset:0.004},
+        b:{lift:0.01, contrast:0.05,gamma:0.98,mult:0.90,offset:0.0  }
+    },
+    // UltraMax 400: punchy, slightly cool/magenta shadow
+    ultramax400:{
+        sat:1.12, grain:11,
+        r:{lift:0.03, contrast:0.07,gamma:1.04,mult:1.04,offset:0.004},
+        g:{lift:0.025,contrast:0.06,gamma:1.02,mult:1.0, offset:0.002},
+        b:{lift:0.04, contrast:0.06,gamma:1.0, mult:0.97,offset:0.012}
+    },
+    // Ektar 100: very saturated, cool neutral, ultra-fine grain, landscape king
+    ektar100:{
+        sat:1.26, grain:3,
+        r:{contrast:0.11,gamma:0.98,mult:1.04,offset:0.0  },
+        g:{contrast:0.10,gamma:1.0, mult:1.0, offset:0.0  },
+        b:{contrast:0.10,gamma:1.0, mult:1.0, offset:0.0  }
+    },
+    // Ektachrome E100: slide film, punchy, blue/cyan bias, very fine grain
+    ektachrome:{
+        sat:1.14, grain:5,
+        r:{contrast:0.12,gamma:0.97,mult:1.0, offset:0.0  },
+        g:{contrast:0.12,gamma:0.97,mult:1.0, offset:0.0  },
+        b:{contrast:0.13,gamma:0.98,mult:1.04,offset:0.004}
+    },
+    // Kodachrome 64: iconic warm reds, cool shadows, moderate sat, yellowish mids
+    kodachrome64:{
+        sat:1.08, grain:5,
+        r:{lift:0.01, contrast:0.14,gamma:0.97,mult:1.06,offset:0.008},
+        g:{lift:0.005,contrast:0.10,gamma:1.0, mult:0.99,offset:0.004},
+        b:{lift:0.02, contrast:0.09,gamma:1.02,mult:0.88,offset:0.0  }
+    },
+
+    // ── Kodak B&W ────────────────────────────────────────────
+    // Tri-X 400: heavy grain, lifted shadows, high contrast
+    trix400:{
+        bw:true, sat:0, grain:18,
+        k:{lift:0.02, contrast:0.13, gamma:1.0}
+    },
+    // T-MAX 100: ultra-fine grain, clinical sharpness, deep blacks
+    tmax100:{
+        bw:true, sat:0, grain:2,
+        k:{lift:0.0, contrast:0.09, gamma:1.02}
+    },
+    // T-MAX P3200: very heavy grain, pushed, gritty
+    tmax3200:{
+        bw:true, sat:0, grain:28,
+        k:{lift:0.04, contrast:0.16, gamma:0.98}
+    },
+
+    // ── Fujifilm Color ───────────────────────────────────────
+    // Provia 100F: neutral, accurate, slight saturation bump, standard reference
+    fuji_provia:{
+        sat:1.07, grain:4,
+        r:{contrast:0.08,gamma:1.0, mult:1.01,offset:0.0  },
+        g:{contrast:0.08,gamma:1.0, mult:1.01,offset:0.0  },
+        b:{contrast:0.09,gamma:1.0, mult:1.01,offset:0.002}
+    },
+    // Velvia 50: extreme saturation, deep blacks, colour film legend
+    fuji_velvia50:{
+        sat:1.42, grain:3,
+        r:{contrast:0.18,gamma:0.96,mult:1.0, offset:0.0  },
+        g:{contrast:0.16,gamma:0.98,mult:0.99,offset:0.0  },
+        b:{contrast:0.18,gamma:0.97,mult:1.06,offset:0.002}
+    },
+    // Velvia 100: slightly less extreme than 50, but still vivid
+    fuji_velvia100:{
+        sat:1.30, grain:3,
+        r:{contrast:0.15,gamma:0.97,mult:1.0, offset:0.0  },
+        g:{contrast:0.13,gamma:0.98,mult:0.99,offset:0.0  },
+        b:{contrast:0.14,gamma:0.98,mult:1.04,offset:0.002}
+    },
+    // Astia 100F: softest Fuji slide, pastel, portrait-friendly
+    fuji_astia:{
+        sat:0.97, grain:4,
+        r:{lift:0.01, contrast:0.06,gamma:1.04,mult:1.01,offset:0.002},
+        g:{lift:0.008,contrast:0.06,gamma:1.03,mult:1.0, offset:0.002},
+        b:{lift:0.015,contrast:0.06,gamma:1.01,mult:0.99,offset:0.006}
+    },
+    // Superia 400: consumer, slightly cool-green, standard grain
+    fuji_superia400:{
+        sat:1.04, grain:9,
+        r:{lift:0.02, contrast:0.06,gamma:1.01,mult:0.99,offset:0.002},
+        g:{lift:0.015,contrast:0.07,gamma:1.02,mult:1.01,offset:0.003},
+        b:{lift:0.03, contrast:0.06,gamma:1.0, mult:0.97,offset:0.008}
+    },
+    // Pro 400H: pastel highlights, natural skin, landscape/wedding
+    fuji_400h:{
+        sat:0.88, grain:7,
+        r:{lift:0.04, contrast:0.04,gamma:1.06,mult:1.01,offset:0.005},
+        g:{lift:0.035,contrast:0.04,gamma:1.04,mult:1.0, offset:0.003},
+        b:{lift:0.05, contrast:0.04,gamma:1.04,mult:0.98,offset:0.012}
+    },
+
+    // ── Fujifilm B&W ─────────────────────────────────────────
+    // Acros 100 II: rich smooth gradation, fine grain, deep blacks
+    fuji_acros:{
+        bw:true, sat:0, grain:4,
+        k:{lift:0.0, contrast:0.10, gamma:1.02,
+           // Acros has a green-channel bias in luminance weights (sharpens foliage)
+           _lum:[0.278, 0.675, 0.047]}
+    },
+    // Neopan 400: classic, slightly contrasty, standard grain
+    fuji_neopan400:{
+        bw:true, sat:0, grain:14,
+        k:{lift:0.01, contrast:0.11, gamma:1.0}
+    },
+
+    // ── Ilford B&W ───────────────────────────────────────────
+    // HP5 Plus 400: versatile workhorse, latitude, natural grey tones
+    ilford_hp5:{
+        bw:true, sat:0, grain:15,
+        k:{lift:0.01, contrast:0.08, gamma:1.01}
+    },
+    // Delta 3200: extreme grain, gritty, pushed aesthetic
+    ilford_delta3200:{
+        bw:true, sat:0, grain:32,
+        k:{lift:0.045, contrast:0.18, gamma:0.97}
+    },
+    // FP4 Plus 125: low grain, clean, very fine tonal gradation
+    ilford_fp4:{
+        bw:true, sat:0, grain:5,
+        k:{lift:0.0, contrast:0.07, gamma:1.03}
+    },
+    // XP2 Super 400: chromogenic, smooth grain, slightly warm
+    ilford_xp2:{
+        bw:true, sat:0, grain:8,
+        k:{lift:0.015, contrast:0.09, gamma:1.02}
+    },
+
+    // ── Cinematic ────────────────────────────────────────────
+    // CineStill 800T: tungsten, halation glow (magenta highlights), pushed shadow
+    cinestill800t:{
+        sat:0.94, grain:16,
+        r:{lift:0.05, contrast:0.08,gamma:1.06,mult:1.04,offset:0.008},
+        g:{lift:0.04, contrast:0.07,gamma:1.0, mult:0.90,offset:0.004},
+        b:{lift:0.06, contrast:0.08,gamma:0.96,mult:0.82,offset:0.0  },
+        _halation:true
+    },
+    // CineStill 50D: daylight, very fine grain, pastel-saturated
+    cinestill50d:{
+        sat:1.03, grain:3,
+        r:{lift:0.015,contrast:0.07,gamma:1.02,mult:1.02,offset:0.003},
+        g:{lift:0.012,contrast:0.07,gamma:1.0, mult:1.0, offset:0.002},
+        b:{lift:0.018,contrast:0.07,gamma:0.99,mult:1.01,offset:0.004}
+    },
+    // Vision3 500T: industry standard cinema stock, muted, very wide latitude
+    vision3_500t:{
+        sat:0.85, grain:12,
+        r:{lift:0.06, contrast:0.05,gamma:1.08,mult:1.03,offset:0.010},
+        g:{lift:0.055,contrast:0.05,gamma:1.04,mult:0.96,offset:0.006},
+        b:{lift:0.07, contrast:0.05,gamma:0.97,mult:0.86,offset:0.003}
+    }
+};
+
+function clamp255(v){ return v<0?0:v>255?255:v; }
+
+function buildCurve(p){
+    p = p || {};
+    const lift=p.lift||0, gain=p.gain!=null?p.gain:1;
+    const gamma=p.gamma!=null?p.gamma:1;
+    const contrast=p.contrast||0;
+    const mult=p.mult!=null?p.mult:1, offset=p.offset||0;
+    const lut=new Uint8Array(256);
+    for(let i=0;i<256;i++){
+        let x=(i/255)*gain;
+        x=lift+x*(1-lift);
+        x=Math.pow(Math.max(0,x),1/gamma);
+        x=x+contrast*Math.sin((x-0.5)*Math.PI);
+        x=x*mult+offset;
+        lut[i]=clamp255(Math.round(x*255));
+    }
+    return lut;
+}
+
+let activeLook = null;
+function buildLook(name){
+    const f=FILMS[name]||FILMS.hb_natural;
+    if(f.bw){
+        const k=buildCurve(f.k);
+        return{bw:true,r:k,g:k,b:k,sat:0,grain:f.grain||0,
+               lum:f.k._lum||[0.299,0.587,0.114],
+               halation:false};
+    }
+    return{
+        bw:false,
+        r:buildCurve(f.r),g:buildCurve(f.g),b:buildCurve(f.b),
+        sat:f.sat!=null?f.sat:1,
+        grain:f.grain||0,
+        lum:[0.299,0.587,0.114],
+        halation:f._halation||false
+    };
+}
+
+function applyLook(data, look, withGrain, seed){
+    if(!look)return;
+    const lr=look.r,lg=look.g,lb=look.b,sat=look.sat,grain=look.grain;
+    const[lR,lG,lB]=look.lum;
+    let rng = withGrain && grain ? mulberry32(seed^0xDEADBEEF) : null;
+
+    for(let i=0;i<data.length;i+=4){
+        let r=lr[data[i]], g=lg[data[i+1]], b=lb[data[i+2]];
+        if(look.bw){
+            const y=lR*r+lG*g+lB*b;
+            r=g=b=y;
+        } else if(sat!==1){
+            const y=lR*r+lG*g+lB*b;
+            r=y+(r-y)*sat;
+            g=y+(g-y)*sat;
+            b=y+(b-y)*sat;
+        }
+        if(rng){
+            const n=(rng()-0.5)*grain;
+            r+=n; g+=n; b+=n;
+        }
+        data[i]    =clamp255(r);
+        data[i+1]  =clamp255(g);
+        data[i+2]  =clamp255(b);
+    }
+
+    // CineStill-style halation: subtle magenta/red bleed in highlights
+    if(look.halation && withGrain){
+        for(let i=0;i<data.length;i+=4){
+            const lum=(data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114)/255;
+            if(lum>0.8){
+                const strength=(lum-0.8)/0.2*22;
+                data[i]  =clamp255(data[i]  +strength*1.4);
+                data[i+1]=clamp255(data[i+1]-strength*0.2);
+                data[i+2]=clamp255(data[i+2]+strength*0.6);
+            }
+        }
+    }
+}
+
+// User-adjustment layer applied on top of film look
+function applyAdjustments(data, bright, cont, sat){
+    const bAdd = bright * 1.5;
+    const cFac = (cont + 100) / 100;  // 0..2, 1=neutral
+    const sFac = (sat  + 100) / 100;
+    for(let i=0;i<data.length;i+=4){
+        let r=data[i], g=data[i+1], b=data[i+2];
+        // Brightness
+        r+=bAdd; g+=bAdd; b+=bAdd;
+        // Contrast (pivot at 128)
+        r=128+(r-128)*cFac;
+        g=128+(g-128)*cFac;
+        b=128+(b-128)*cFac;
+        // Saturation
+        if(sFac!==1){
+            const y=0.299*r+0.587*g+0.114*b;
+            r=y+(r-y)*sFac;
+            g=y+(g-y)*sFac;
+            b=y+(b-y)*sFac;
+        }
+        data[i]  =clamp255(r);
+        data[i+1]=clamp255(g);
+        data[i+2]=clamp255(b);
+    }
+}
+
+// ============================================================
+//  History (Undo/Redo)
+// ============================================================
+function snapshotState(){
+    return {panX,panY,zoom,rotation,brightness,contrast,saturation};
+}
+
+function pushHistory(){
+    // Truncate forward history
+    if(historyIndex < historyStack.length-1)
+        historyStack.splice(historyIndex+1);
+    historyStack.push(snapshotState());
+    if(historyStack.length>MAX_HISTORY) historyStack.shift();
+    historyIndex=historyStack.length-1;
+    syncHistoryBtns();
+}
+
+function applySnapshot(s){
+    panX=s.panX; panY=s.panY; zoom=s.zoom; rotation=s.rotation;
+    brightness=s.brightness; contrast=s.contrast; saturation=s.saturation;
+    // Sync sliders
+    rotSlider.value    =rotation;
+    brightSlider.value =brightness;
+    contrastSlider.value=contrast;
+    satSlider.value    =saturation;
+    rotDisplay.textContent     =rotation+'°';
+    brightDisplay.textContent  =brightness;
+    contrastDisplay.textContent=contrast;
+    satDisplay.textContent     =saturation;
+    draw();
+}
+
+function syncHistoryBtns(){
+    undoBtn.disabled = historyIndex <= 0;
+    redoBtn.disabled = historyIndex >= historyStack.length-1;
+}
+
+undoBtn.addEventListener('click',()=>{
+    if(historyIndex>0){ historyIndex--; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); }
+});
+redoBtn.addEventListener('click',()=>{
+    if(historyIndex<historyStack.length-1){ historyIndex++; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); }
+});
+
+// ============================================================
+//  Film look selector
+// ============================================================
+lookSelect.addEventListener('change',()=>{
+    currentLook=lookSelect.value;
+    activeLook=buildLook(currentLook);
+    if(img){ pushHistory(); draw(); }
+});
+activeLook=buildLook(currentLook);
+
+// ============================================================
+//  Sliders
+// ============================================================
+function bindSlider(el, displayEl, suffix, onChange){
+    el.addEventListener('input',()=>{
+        displayEl.textContent=el.value+suffix;
+        onChange(parseFloat(el.value));
+    });
+    el.addEventListener('change',()=>{ if(img) pushHistory(); });
+}
+
+bindSlider(rotSlider, rotDisplay, '°', v=>{
+    rotation=v; rotValEl.textContent=v+'°';
+    showRotReadout();
+    if(img) draw();
+});
+bindSlider(brightSlider, brightDisplay, '', v=>{ brightness=v; if(img) draw(); });
+bindSlider(contrastSlider, contrastDisplay, '', v=>{ contrast=v; if(img) draw(); });
+bindSlider(satSlider, satDisplay, '', v=>{ saturation=v; if(img) draw(); });
+grainSeedSlider.addEventListener('input',()=>{
+    grainSeed=parseInt(grainSeedSlider.value);
+    grainSeedDisplay.textContent=grainSeed;
+});
+
+// ============================================================
+//  Ratio presets & custom ratio
+// ============================================================
+document.getElementById('ratioPresets').addEventListener('click', e=>{
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    document.querySelectorAll('#ratioPresets button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const w = parseFloat(btn.dataset.w), h = parseFloat(btn.dataset.h);
+    if(w===0 && h===0){
+        customRatioWrap.style.display='flex';
+    } else {
+        customRatioWrap.style.display='none';
+        setRatio(w, h);
+    }
+});
+
+[ratioW, ratioH].forEach(el=>{
+    el.addEventListener('input',()=>{
+        const w=parseFloat(ratioW.value)||1, h=parseFloat(ratioH.value)||1;
+        setRatio(w, h);
+    });
+});
+
+function setRatio(w, h){
+    ratioNumerator=w; ratioDenominator=h;
+    XPAN_RATIO=w/h;
+    const r=(XPAN_RATIO).toFixed(2);
+    ratioDisplay.textContent=`${w} : ${h} · ${r}:1`;
+    if(img){ resizeCanvas(); pushHistory(); }
+}
+
+// ============================================================
+//  Zoom readout
+// ============================================================
+function showZoom(){
+    if(!img)return;
+    zoomVal.textContent=zoom.toFixed(2)+'×';
+    readout.classList.add('show');
+    clearTimeout(readoutTimer);
+    readoutTimer=setTimeout(()=>readout.classList.remove('show'),1100);
+}
+function showRotReadout(){
+    rotReadout.classList.add('show');
+    clearTimeout(rotReadoutTimer);
+    rotReadoutTimer=setTimeout(()=>rotReadout.classList.remove('show'),1100);
+}
+
+// ============================================================
+//  Image Upload
+// ============================================================
+imageInput.addEventListener('change',e=>{
+    const file=e.target.files[0]; if(!file)return;
+    loadFile(file);
+});
+
+// Drag-and-drop
+canvasContainer.addEventListener('dragover',e=>{
+    e.preventDefault(); canvasContainer.classList.add('drag-over');
+});
+canvasContainer.addEventListener('dragleave',()=>canvasContainer.classList.remove('drag-over'));
+canvasContainer.addEventListener('drop',e=>{
+    e.preventDefault(); canvasContainer.classList.remove('drag-over');
+    const file=e.dataTransfer.files[0];
+    if(file && file.type.startsWith('image/')) loadFile(file);
+});
+
+function loadFile(file){
+    const reader=new FileReader();
+    reader.onload=ev=>{
+        img=new Image();
+        img.onload=()=>{
+            zoom=1; rotation=0;
+            rotSlider.value=0; rotDisplay.textContent='0°'; rotValEl.textContent='0°';
+            historyStack.length=0; historyIndex=-1;
+            resizeCanvas(); centerImage();
+            exportBtn.disabled=false; resetBtn.disabled=false;
+            emptyState.classList.add('hidden');
+            pushHistory(); showZoom();
+        };
+        img.src=ev.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// ============================================================
+//  Canvas Sizing
+// ============================================================
+function resizeCanvas(){
+    if(!img)return;
+    const containerW=canvasContainer.clientWidth;
+    const containerH=Math.min(containerW*0.6, window.innerHeight*0.5);
+    canvas.width=containerW; canvas.height=containerH;
+
+    let tempW=canvas.width*0.9, tempH=tempW/XPAN_RATIO;
+    if(tempH>canvas.height*0.9){ tempH=canvas.height*0.9; tempW=tempH*XPAN_RATIO; }
+    boxW=tempW; boxH=tempH;
+    boxX=(canvas.width-boxW)/2; boxY=(canvas.height-boxH)/2;
+
+    const minZoomW=boxW/img.width, minZoomH=boxH/img.height;
+    MIN_ZOOM=Math.max(minZoomW,minZoomH);
+    MAX_ZOOM=Math.min(20,MIN_ZOOM*10);
+    if(zoom<MIN_ZOOM)zoom=MIN_ZOOM;
+    if(zoom>MAX_ZOOM)zoom=MAX_ZOOM;
+
+    constrainPan(); draw();
+}
+
+function centerImage(){
+    if(!img)return;
+    panX=boxX+(boxW-img.width*zoom)/2;
+    panY=boxY+(boxH-img.height*zoom)/2;
+    constrainPan(); draw();
+}
+
+function resetView(){
+    zoom=MIN_ZOOM; rotation=0;
+    rotSlider.value=0; rotDisplay.textContent='0°'; rotValEl.textContent='0°';
+    centerImage(); showZoom(); pushHistory();
+}
+
+// ============================================================
+//  Pan Constraint
+//  With rotation the bounding rect of the rotated image expands,
+//  so we compute the rotated corners to ensure full box coverage.
+// ============================================================
+function constrainPan(){
+    if(!img)return;
+    const rad=rotation*Math.PI/180;
+    const cos=Math.abs(Math.cos(rad)), sin=Math.abs(Math.sin(rad));
+    const iw=img.width*zoom, ih=img.height*zoom;
+    // Axis-aligned bounding box of rotated image
+    const rotW=iw*cos+ih*sin, rotH=iw*sin+ih*cos;
+
+    // The rotated image centre is at (panX+iw/2, panY+ih/2)
+    // We need the rotated bounding box to cover the crop box
+    const cx=panX+iw/2, cy=panY+ih/2;
+    const halfRW=rotW/2, halfRH=rotH/2;
+
+    // Bounding box left must be <= boxX, right >= boxX+boxW
+    const newCXmin=boxX+boxW-halfRW, newCXmax=boxX+halfRW; // actually: left=cx-halfRW
+    // left edge of AABB: cx-halfRW <= boxX  =>  cx <= boxX+halfRW
+    // right edge:        cx+halfRW >= boxX+boxW => cx >= boxX+boxW-halfRW
+    const clampedCX=Math.max(boxX+boxW-halfRW, Math.min(cx, boxX+halfRW));
+    const clampedCY=Math.max(boxY+boxH-halfRH, Math.min(cy, boxY+halfRH));
+
+    panX=clampedCX-iw/2;
+    panY=clampedCY-ih/2;
+}
+
+window.addEventListener('resize',resizeCanvas);
+
+// ============================================================
+//  Drawing
+// ============================================================
+function draw(){
+    if(!img)return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const iw=img.width*zoom, ih=img.height*zoom;
+    const cx=panX+iw/2, cy=panY+ih/2;
+    const rad=rotation*Math.PI/180;
+
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(rad);
+    ctx.drawImage(img,-iw/2,-ih/2,iw,ih);
+    ctx.restore();
+
+    // Live film look over crop region
+    if(activeLook){
+        const rx=Math.max(0,Math.floor(boxX));
+        const ry=Math.max(0,Math.floor(boxY));
+        const rw=Math.min(canvas.width-rx, Math.ceil(boxW));
+        const rh=Math.min(canvas.height-ry, Math.ceil(boxH));
+        if(rw>0&&rh>0){
+            const region=ctx.getImageData(rx,ry,rw,rh);
+            applyLook(region.data,activeLook,false,grainSeed);
+            if(brightness!==0||contrast!==0||saturation!==0)
+                applyAdjustments(region.data,brightness,contrast,saturation);
+            ctx.putImageData(region,rx,ry);
+        }
+    }
+
+    // Dark overlay outside box
+    ctx.fillStyle='rgba(0,0,0,0.72)';
+    ctx.fillRect(0,0,canvas.width,boxY);
+    ctx.fillRect(0,boxY+boxH,canvas.width,canvas.height-(boxY+boxH));
+    ctx.fillRect(0,boxY,boxX,boxH);
+    ctx.fillRect(boxX+boxW,boxY,canvas.width-(boxX+boxW),boxH);
+
+    // Rule-of-thirds guides
+    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
+    ctx.beginPath();
+    for(let i=1;i<=2;i++){
+        const gx=boxX+boxW*i/3; ctx.moveTo(gx,boxY); ctx.lineTo(gx,boxY+boxH);
+        const gy=boxY+boxH*i/3; ctx.moveTo(boxX,gy); ctx.lineTo(boxX+boxW,gy);
+    }
+    ctx.stroke();
+
+    // Box border
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.strokeRect(boxX,boxY,boxW,boxH);
+
+    // Corner ticks
+    const t=14;
+    ctx.strokeStyle='#ff5a1f'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(boxX,boxY+t);      ctx.lineTo(boxX,boxY);      ctx.lineTo(boxX+t,boxY);
+    ctx.moveTo(boxX+boxW-t,boxY); ctx.lineTo(boxX+boxW,boxY); ctx.lineTo(boxX+boxW,boxY+t);
+    ctx.moveTo(boxX,boxY+boxH-t); ctx.lineTo(boxX,boxY+boxH); ctx.lineTo(boxX+t,boxY+boxH);
+    ctx.moveTo(boxX+boxW-t,boxY+boxH); ctx.lineTo(boxX+boxW,boxY+boxH); ctx.lineTo(boxX+boxW,boxY+boxH-t);
+    ctx.stroke();
+}
+
+// ============================================================
+//  Touch Helpers
+// ============================================================
+function getTouchPos(touch){
+    const rect=canvas.getBoundingClientRect();
+    return {
+        x:(touch.clientX-rect.left)*(canvas.width/rect.width),
+        y:(touch.clientY-rect.top)*(canvas.height/rect.height)
+    };
+}
+function pinchDistance(a,b){ return Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY); }
+function pinchCenter(a,b){
+    const rect=canvas.getBoundingClientRect();
+    return {
+        x:((a.clientX+b.clientX)/2-rect.left)*(canvas.width/rect.width),
+        y:((a.clientY+b.clientY)/2-rect.top)*(canvas.height/rect.height)
+    };
+}
+
+canvas.addEventListener('touchstart',handleTouchStart,{passive:false});
+canvas.addEventListener('touchmove',handleTouchMove,{passive:false});
+canvas.addEventListener('touchend',handleTouchEnd,{passive:false});
+canvas.addEventListener('touchcancel',handleTouchEnd,{passive:false});
+
+function handleTouchStart(e){
+    e.preventDefault(); if(!img)return;
+    activeTouches=e.touches.length;
+    if(activeTouches===1){
+        const pos=getTouchPos(e.touches[0]);
+        lastTouchX=pos.x; lastTouchY=pos.y;
+        const now=Date.now(), gap=now-lastTapTime;
+        if(gap<300&&gap>0){ resetView(); lastTapTime=0; }
+        else lastTapTime=now;
+    } else if(activeTouches===2){
+        lastPinchDist=pinchDistance(e.touches[0],e.touches[1]);
+        lastTapTime=0;
+    }
+}
+
+function handleTouchMove(e){
+    e.preventDefault(); if(!img)return;
+    const ct=e.touches.length;
+    if(ct===1&&activeTouches===1){
+        const pos=getTouchPos(e.touches[0]);
+        panX+=pos.x-lastTouchX; panY+=pos.y-lastTouchY;
+        lastTouchX=pos.x; lastTouchY=pos.y;
+        constrainPan(); draw();
+    } else if(ct===2){
+        const nd=pinchDistance(e.touches[0],e.touches[1]);
+        const center=pinchCenter(e.touches[0],e.touches[1]);
+        if(lastPinchDist>0){
+            const sf=nd/lastPinchDist;
+            const nz=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,zoom*sf));
+            if(nz!==zoom){
+                const zr=nz/zoom;
+                panX=center.x-(center.x-panX)*zr;
+                panY=center.y-(center.y-panY)*zr;
+                zoom=nz; constrainPan(); draw(); showZoom();
+            }
+        }
+        lastPinchDist=nd;
+    }
+    activeTouches=ct;
+}
+
+function handleTouchEnd(e){
+    e.preventDefault();
+    if(img && activeTouches>0 && e.touches.length===0) pushHistory();
+    activeTouches=e.touches.length; lastPinchDist=0;
+}
+
+// ============================================================
+//  Mouse Events
+// ============================================================
+let mouseDown=false, mouseLastTap=0;
+
+canvas.addEventListener('mousedown',e=>{
+    if(!img)return; mouseDown=true;
+    const pos=getTouchPos(e); lastTouchX=pos.x; lastTouchY=pos.y;
+    const now=Date.now(), gap=now-mouseLastTap;
+    if(gap<300&&gap>0){ resetView(); mouseLastTap=0; }
+    else mouseLastTap=now;
+});
+window.addEventListener('mousemove',e=>{
+    if(!mouseDown||!img)return;
+    const pos=getTouchPos(e);
+    panX+=pos.x-lastTouchX; panY+=pos.y-lastTouchY;
+    lastTouchX=pos.x; lastTouchY=pos.y;
+    constrainPan(); draw();
+});
+window.addEventListener('mouseup',()=>{ if(mouseDown&&img) pushHistory(); mouseDown=false; });
+
+canvas.addEventListener('wheel',e=>{
+    e.preventDefault(); if(!img)return;
+    const pos=getTouchPos(e);
+    const delta=e.deltaY>0?0.9:1.1;
+    const nz=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,zoom*delta));
+    if(nz!==zoom){
+        const zr=nz/zoom;
+        panX=pos.x-(pos.x-panX)*zr;
+        panY=pos.y-(pos.y-panY)*zr;
+        zoom=nz; constrainPan(); draw(); showZoom();
+    }
+},{passive:false});
+
+resetBtn.addEventListener('click',()=>{ if(img) resetView(); });
+
+// ============================================================
+//  AI Upscaling — Swin2SR 4× via Transformers.js
+//  Model: Xenova/swin2SR-realworld-sr-x4-64-bsrgan-psnr
+//  Properly hosted on HuggingFace Hub, cached in IndexedDB.
+//  Transformers.js handles ONNX Runtime + WebGPU detection.
+// ============================================================
+const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.0/dist/transformers.min.js';
+// Two models available — real-world (photos) is better for XPAN use
+const UPSCALE_MODEL = 'Xenova/swin2SR-realworld-sr-x4-64-bsrgan-psnr';
+
+let transformersPipeline = null; // the upscaler pipeline instance
+let transformersLib = null;      // the imported module
+
+function setProgress(pct, text){
+    upscaleProgress.classList.add('show');
+    progressFill.style.width=pct+'%';
+    progressText.textContent=text;
+}
+
+function setUpscaleError(msg){
+    upscaleProgress.classList.remove('show');
+    upscaleBadge.className='show error';
+    upscaleBadge.style.display='block';
+    upscaleBadge.textContent='⚠ '+msg;
+    console.warn('[XPAN upscale]', msg);
+}
+
+async function loadTransformers(){
+    if(transformersLib) return transformersLib;
+    return new Promise((resolve, reject)=>{
+        // Use dynamic import via a module script tag
+        const s = document.createElement('script');
+        s.type = 'module';
+        s.textContent = `
+            import * as T from '${TRANSFORMERS_CDN}';
+            window.__xpanTransformers = T;
+            window.dispatchEvent(new Event('xpan-transformers-ready'));
+        `;
+        window.addEventListener('xpan-transformers-ready', ()=>{
+            transformersLib = window.__xpanTransformers;
+            resolve(transformersLib);
+        }, {once:true});
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+
+async function initUpscaler(){
+    setProgress(5, 'Loading Transformers.js…');
+    let T;
+    try {
+        T = await loadTransformers();
+    } catch(e) {
+        setUpscaleError('Could not load Transformers.js — check network');
+        return null;
+    }
+
+    // Check WebGPU
+    setProgress(12, 'Detecting GPU…');
+    let device = 'wasm';
+    if(navigator.gpu){
+        try {
+            const adapter = await navigator.gpu.requestAdapter();
+            if(adapter){ device = 'webgpu'; }
+        } catch(e) { /* no webgpu */ }
+    }
+    if(device === 'webgpu'){
+        gpuBadge.style.display = ''; cpuBadge.style.display = 'none';
+        useWebGPU = true;
+    } else {
+        cpuBadge.style.display = ''; gpuBadge.style.display = 'none';
+    }
+
+    setProgress(20, `Loading Swin2SR model (first run ~25 MB, cached after)…`);
+
+    try {
+        // Progress callback to update bar during model download
+        const pipeline = await T.pipeline('image-to-image', UPSCALE_MODEL, {
+            dtype: 'fp32',
+            device: device,
+            progress_callback: (info) => {
+                if(info.status === 'downloading' && info.total){
+                    const pct = 20 + Math.round((info.loaded / info.total) * 70);
+                    const mb = (info.loaded / 1024 / 1024).toFixed(1);
+                    const total = (info.total / 1024 / 1024).toFixed(1);
+                    setProgress(pct, `Downloading model… ${mb} / ${total} MB`);
+                } else if(info.status === 'loading'){
+                    setProgress(92, 'Initialising model…');
+                }
+            }
+        });
+
+        setProgress(100, 'Swin2SR ready');
+        upscaleBadge.className='show ready';
+        upscaleBadge.style.display='block';
+        upscaleBadge.textContent=`⬆ Swin2SR 4× ${device==='webgpu'?'GPU':'CPU'} READY`;
+        setTimeout(()=>upscaleProgress.classList.remove('show'), 1200);
+        return pipeline;
+
+    } catch(e) {
+        console.error('[XPAN upscale] model init failed:', e);
+        setUpscaleError('Model load failed — see console. Will export at native res.');
+        return null;
+    }
+}
+
+async function runUpscale(cropCanvas){
+    const T = transformersLib;
+    const W = cropCanvas.width, H = cropCanvas.height;
+
+    // Convert canvas → blob → File (transformers.js pipeline accepts File/Blob/URL)
+    const blob = await new Promise(res => cropCanvas.toBlob(res, 'image/png'));
+
+    setProgress(30, `Running Swin2SR on ${W}×${H}px crop…`);
+
+    // For large images, tile manually because Swin2SR has a fixed receptive field
+    // but transformers.js handles this internally for this model
+    const output = await transformersPipeline(blob, {
+        // progress callback not available at inference time for this pipeline
+    });
+
+    setProgress(90, 'Converting output…');
+
+    // output is a RawImage — convert to canvas
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = output.width;
+    outCanvas.height = output.height;
+    const outCtx = outCanvas.getContext('2d');
+
+    // RawImage.data is Uint8Array [R,G,B,R,G,B,...] (no alpha)
+    const rgba = new Uint8ClampedArray(output.width * output.height * 4);
+    const src = output.data;
+    const channels = output.channels; // 3 for RGB
+
+    for(let i = 0; i < output.width * output.height; i++){
+        rgba[i*4]   = src[i*channels];
+        rgba[i*4+1] = src[i*channels+1];
+        rgba[i*4+2] = src[i*channels+2];
+        rgba[i*4+3] = 255;
+    }
+
+    outCtx.putImageData(new ImageData(rgba, output.width, output.height), 0, 0);
+    setProgress(100, 'Done');
+    return outCanvas;
+}
+
+upscaleToggle.addEventListener('change', async()=>{
+    if(!upscaleToggle.checked) return;
+    if(!transformersPipeline && !onnxLoading){
+        onnxLoading = true;
+        upscaleProgress.classList.add('show');
+        transformersPipeline = await initUpscaler();
+        // also set legacy onnxSession so export check works
+        onnxSession = transformersPipeline;
+        onnxLoading = false;
+        if(!transformersPipeline){
+            upscaleToggle.checked = false;
+        }
+    }
+});
+
+// ============================================================
+//  Export
+// ============================================================
+exportBtn.addEventListener('click', async()=>{
+    if(!img)return;
+
+    // Render the full crop at native image resolution
+    const rad=rotation*Math.PI/180;
+    const cos=Math.abs(Math.cos(rad)), sin=Math.abs(Math.sin(rad));
+    const iw=img.width*zoom, ih=img.height*zoom;
+
+    // Compute crop region in canvas space → image space
+    const sw=boxW/zoom, sh=boxH/zoom;
+    // Image centre in canvas
+    const cx=panX+iw/2, cy=panY+ih/2;
+    // Box centre in canvas
+    const bcx=boxX+boxW/2, bcy=boxY+boxH/2;
+    // Offset from image centre to box centre (in canvas space)
+    const dx=bcx-cx, dy=bcy-cy;
+    // Rotate that offset back to image space
+    const cosr=Math.cos(-rad), sinr=Math.sin(-rad);
+    const idx=(dx*cosr-dy*sinr)/zoom;
+    const idy=(dx*sinr+dy*cosr)/zoom;
+    const sx=img.width/2+idx-sw/2;
+    const sy=img.height/2+idy-sh/2;
+
+    const outCanvas=document.createElement('canvas');
+    outCanvas.width=Math.round(sw); outCanvas.height=Math.round(sh);
+    const outCtx=outCanvas.getContext('2d');
+
+    // Draw rotated image onto output canvas
+    outCtx.save();
+    outCtx.translate(outCanvas.width/2, outCanvas.height/2);
+    outCtx.rotate(rad);
+    outCtx.drawImage(img, -img.width/2+(-idx), -img.height/2+(-idy), img.width, img.height);
+    outCtx.restore();
+
+    // Apply film look with grain (seeded)
+    const imageData=outCtx.getImageData(0,0,outCanvas.width,outCanvas.height);
+    applyLook(imageData.data, buildLook(currentLook), true, grainSeed);
+    if(brightness!==0||contrast!==0||saturation!==0)
+        applyAdjustments(imageData.data,brightness,contrast,saturation);
+    outCtx.putImageData(imageData,0,0);
+
+    // AI Upscale if enabled and model loaded
+    let finalCanvas=outCanvas;
+    if(upscaleToggle.checked && transformersPipeline){
+        exportBtn.disabled=true;
+        exportBtn.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="M8 12l4 4 4-4"/><path d="M4 20h16"/></svg> Upscaling…`;
+        try{
+            finalCanvas=await runUpscale(outCanvas);
+            upscaleBadge.className='show ready';
+            upscaleBadge.style.display='block';
+            upscaleBadge.textContent=`⬆ UPSCALED 4× · ${finalCanvas.width}×${finalCanvas.height}`;
+        }catch(e){
+            console.warn('Upscale failed',e);
+            finalCanvas=outCanvas;
+        }
+        exportBtn.disabled=false;
+        exportBtn.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="M8 12l4 4 4-4"/><path d="M4 20h16"/></svg> Export Image`;
+        upscaleProgress.classList.remove('show');
+    }
+
+    const link=document.createElement('a');
+    link.download=`xpan_${currentLook}_seed${grainSeed}_${Date.now()}.jpg`;
+    link.href=finalCanvas.toDataURL('image/jpeg',0.95);
+    link.click();
+});
+</script>
+</body>
+</html>
