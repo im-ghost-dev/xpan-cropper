@@ -26,9 +26,11 @@ Built by [G.H.O.S.T](https://github.com/im-ghost-dev) · Bangalore, India
 
 The [Hasselblad XPan](https://en.wikipedia.org/wiki/Hasselblad_XPan) was a cult panoramic film camera that exposed a **65×24mm frame** across two standard 35mm frames — producing an extreme **2.71:1 aspect ratio** that no digital camera natively shoots.
 
-This tool lets you simulate that framing on any digital photo. Load an image, compose your panoramic frame by panning and zooming inside the crop box, apply one of 27 hand-tuned film stock emulations, and export a full-resolution JPEG — with optional AI upscaling so the tight crop never looks soft.
+This tool lets you simulate that framing on any digital photo. Load an image, compose your panoramic frame, apply one of 27 hand-tuned film stock emulations (or skip the look entirely), and export a full-resolution JPEG — with optional AI upscaling so the tight crop never looks soft.
 
-Everything runs **entirely in the browser**. No server. No upload. No installation. Single HTML file.
+Everything runs **entirely in the browser**. No server-side processing, no upload. Single HTML file.
+
+> **Important:** AI upscaling requires the page to be loaded over `http://` or `https://` (e.g. via GitHub Pages or a local dev server). It will not work if the file is opened directly from a file manager / Downloads folder (`content://` or `file://`), because the browser blocks cross-origin script execution from those origins. All other features (cropping, film looks, export) work fine from a local file.
 
 ---
 
@@ -42,14 +44,15 @@ Everything runs **entirely in the browser**. No server. No upload. No installati
 
 ### Core
 - **XPan crop** — 65:24 (2.71:1) ratio, locked to the Hasselblad XPan standard
+- **Horizontal / Vertical toggle** — flip orientation while keeping the 2.71:1 ratio
 - **Pan & zoom** — drag to pan, scroll/pinch to zoom, double-tap/click to reset
 - **Rotation** — ±45° slider with pan constraint recalculated on the rotated bounding box
 - **Custom ratios** — presets for XPan / 3:1 / 2:1 / 16:9 / 7:3, plus free custom W:H input
 - **Drag-and-drop** — drop a photo directly onto the canvas
 
-### Film Emulation — 27 Stocks
-
-All looks are per-channel tone curves (lift, gamma, contrast, colour cast) derived from published densitometry and spectral sensitivity data. Grain is **seeded** — same seed = identical noise every export.
+### Film Emulation — 27 Stocks + Original
+- **Original (No LUT)** — default option, skips film processing entirely, image stays untouched (adjustments still apply)
+- All looks are per-channel tone curves (lift, gamma, contrast, colour cast) derived from published densitometry and spectral sensitivity data. Grain is **seeded** — same seed = identical noise every export.
 
 | Group | Stocks |
 |---|---|
@@ -62,17 +65,22 @@ All looks are per-channel tone curves (lift, gamma, contrast, colour cast) deriv
 | **Cinematic** | CineStill 800T (with halation), CineStill 50D, Vision3 500T |
 
 ### Adjustments
-- Brightness / Contrast / Saturation sliders on top of film look
+- Brightness / Contrast / Saturation sliders on top of (or instead of) film look
 - Grain seed slider (0–999) for deterministic, repeatable exports
 
 ### Undo / Redo
 - 50-step history — pan, zoom, rotation, all sliders, look changes, ratio changes, resets
 
+### Haptic Feedback
+- Light taps on button presses, ticks on slider release, success patterns on image load/export
+- Android Chrome/Firefox only — iOS Safari does not support the Vibration API (Apple platform restriction), degrades silently
+
 ### AI Upscaling
-- **Swin2SR 4×** (Microsoft, realworld variant) — runs entirely in-browser via [Transformers.js](https://github.com/huggingface/transformers.js) + ONNX Runtime
-- **WebGPU** on Chrome 113+ / Edge, falls back to WASM CPU automatically
-- Model (~25 MB) downloads once, cached in IndexedDB — instant on next use
-- Prevents resolution loss when cropping a tight panoramic section from a large photo
+- **Real-ESRGAN-x4plus** — trained on real-world photo degradation, runs entirely in-browser via ONNX Runtime Web
+- **WebGPU** on Chrome 113+ / Edge, falls back to WASM CPU automatically (and retries on CPU if WebGPU session init fails)
+- Model (~67 MB) downloads once, cached via the Cache API — instant and offline-capable on next use
+- Tile-based inference (128px tiles, 8px overlap) so large crops don't run out of memory
+- **Requires `http://` or `https://` origin** — see note above
 
 ### Export
 - Full native-resolution crop as JPEG (0.95 quality)
@@ -82,25 +90,34 @@ All looks are per-channel tone curves (lift, gamma, contrast, colour cast) deriv
 
 ## Usage
 
-1. Open `index.html` in any modern browser — or visit the [live demo](https://im-ghost-dev.github.io/xpan-cropper)
+1. Open the [live demo](https://im-ghost-dev.github.io/xpan-cropper) (or run locally — see below)
 2. Drop a photo onto the canvas or use **Load Photo**
-3. Pan and zoom to compose your XPan frame
-4. Pick a film stock
-5. Adjust sliders as needed
-6. Toggle **AI Upscaling** if you want 4× resolution on export
-7. Hit **Export Image**
+3. Pan, zoom, and rotate to compose your frame
+4. Toggle horizontal/vertical orientation if needed
+5. Pick a film stock (or leave on Original)
+6. Adjust sliders as needed
+7. Toggle **AI Upscaling** if you want 4× resolution on export
+8. Hit **Export Image**
+
+### Running locally
+```bash
+git clone https://github.com/im-ghost-dev/xpan-cropper.git
+cd xpan-cropper
+python -m http.server 8080
+# open http://localhost:8080 in your browser
+```
 
 ---
 
 ## Browser Support
 
-| Browser | Film Looks | AI (WASM) | AI (WebGPU) |
-|---|---|---|---|
-| Chrome 113+ | ✅ | ✅ | ✅ |
-| Edge 113+ | ✅ | ✅ | ✅ |
-| Firefox | ✅ | ✅ | ⚠️ Flag |
-| Safari 17+ | ✅ | ✅ | ⚠️ Partial |
-| Mobile Chrome | ✅ | ✅ | Device-dependent |
+| Browser | Film Looks | AI (WASM) | AI (WebGPU) | Haptics |
+|---|---|---|---|---|
+| Chrome 113+ (Android) | ✅ | ✅ | ✅ | ✅ |
+| Edge 113+ | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ⚠️ Flag | ✅ |
+| Safari 17+ (iOS) | ✅ | ✅ | ⚠️ Partial | ❌ Not supported |
+| Mobile Chrome | ✅ | ✅ | Device-dependent | ✅ |
 
 HEIC loads natively on **Safari / iOS** only.
 
@@ -123,18 +140,18 @@ xpan-cropper/
 
 ## Notes
 
-**Single file** — no build step, no dependencies, works from a USB drive or local double-click.
+**Single file** — no build step, no dependencies, works from a USB drive or local double-click (except AI upscaling, see note above).
 
 **Film stock disclaimer** — Kodak, Fuji, Hasselblad, and Ilford do not publicly release their proprietary LUT files. Emulations here are built from scratch using published spectral sensitivity data and community measurement projects (darktable, Filmulator, RawTherapee).
 
-**Why Swin2SR not Real-ESRGAN** — Real-ESRGAN's ONNX weights aren't on a CORS-friendly CDN. Swin2SR's `realworld-sr-x4-64-bsrgan-psnr` variant is properly hosted on Hugging Face Hub via Xenova's Transformers.js repo, downloads with progress tracking, and caches to IndexedDB.
+**AI model** — Real-ESRGAN-x4plus, sourced from `qualcomm/Real-ESRGAN-x4plus` on the Hugging Face Hub (properly CORS-hosted ONNX export). Chosen over Swin2SR because it's trained specifically on real-world photo degradation rather than JPEG compression artifacts.
 
 ---
 
 ## Credits
 
 Film emulation parameters from community-measured data.  
-[Swin2SR](https://github.com/JingyunLiang/SwinIR) by Microsoft Research · ONNX conversion by [Xenova](https://huggingface.co/Xenova) · [Transformers.js](https://github.com/huggingface/transformers.js) by Hugging Face
+[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) by Xintao Wang et al. · ONNX export by [Qualcomm AI Hub](https://huggingface.co/qualcomm) · [ONNX Runtime Web](https://onnxruntime.ai/) by Microsoft
 
 ---
 

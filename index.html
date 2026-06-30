@@ -366,8 +366,11 @@
         <div class="ctl-block grow">
             <span class="field-label">Film Look</span>
             <select id="lookSelect" class="look-select">
+                <optgroup label="─ No Look">
+                    <option value="none" selected>Original (No LUT)</option>
+                </optgroup>
                 <optgroup label="─ Hasselblad">
-                    <option value="hb_natural" selected>Natural Color</option>
+                    <option value="hb_natural">Natural Color</option>
                     <option value="hb_bw">XPan B&amp;W</option>
                 </optgroup>
                 <optgroup label="─ Kodak Color">
@@ -423,6 +426,12 @@
                 <button data-w="7" data-h="3"><span class="dot"></span>7:3</button>
                 <button data-w="0" data-h="0"><span class="dot"></span>Custom</button>
             </div>
+            <button id="orientToggle" class="btn" style="padding:9px 14px;" title="Toggle horizontal / vertical">
+                <svg id="orientIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                    <rect x="3" y="8" width="18" height="8" rx="1.5"/>
+                </svg>
+                <span id="orientLabel">Horizontal</span>
+            </button>
             <div class="ratio-group" id="customRatioWrap" style="display:none;">
                 <input type="number" id="ratioW" class="ratio-input" min="1" max="99" value="65" placeholder="W">
                 <span class="ratio-sep">:</span>
@@ -465,7 +474,7 @@
     <div class="ai-panel">
         <div class="ai-panel-header">
             <div class="ai-label">
-                Swin2SR 4× Super-Resolution
+                Real-ESRGAN 4× Super-Resolution
                 <span class="ai-badge gpu" id="gpuBadge">WebGPU</span>
                 <span class="ai-badge cpu" id="cpuBadge" style="display:none;">CPU / WASM</span>
             </div>
@@ -479,8 +488,8 @@
             </div>
         </div>
         <div class="ai-desc">
-            Runs <b>Swin2SR</b> (realworld 4× variant) on the cropped region before export — prevents resolution loss from cropping a small section of a large image.
-            Model runs entirely <b>in-browser</b> via Transformers.js + ONNX Runtime. First run downloads ~25 MB and caches to IndexedDB — instant on next use.
+            Runs <b>Real-ESRGAN-x4plus</b> on the cropped region before export — trained specifically on real-world photo degradation, prevents resolution loss from cropping a small section of a large image.
+            Model runs entirely <b>in-browser</b> via ONNX Runtime. First run downloads ~67 MB and caches via the Cache API — instant on next use, even offline.
         </div>
         <div class="progress-wrap" id="upscaleProgress">
             <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
@@ -562,14 +571,36 @@ const satDisplay     = document.getElementById('satDisplay');
 const grainSeedDisplay = document.getElementById('grainSeedDisplay');
 
 // ============================================================
+//  Haptic Feedback
+//  navigator.vibrate() works on Android Chrome/Firefox; iOS Safari
+//  does not support it at all (Apple restriction), so this is a
+//  silent no-op there — feature degrades gracefully, no error.
+// ============================================================
+const HAPTIC_SUPPORTED = typeof navigator !== 'undefined' && 'vibrate' in navigator;
+function triggerHaptic(kind){
+    if(!HAPTIC_SUPPORTED) return;
+    try{
+        switch(kind){
+            case 'light':  navigator.vibrate(8);  break;
+            case 'medium': navigator.vibrate(15); break;
+            case 'tick':   navigator.vibrate(4);  break;
+            case 'success':navigator.vibrate([10,40,10]); break;
+            case 'error':  navigator.vibrate([20,30,20,30]); break;
+            default: navigator.vibrate(8);
+        }
+    }catch(e){ /* silently ignore */ }
+}
+
+// ============================================================
 //  State
 // ============================================================
 let img = null;
 let zoom = 1;
 let panX = 0, panY = 0;
 let rotation = 0;     // degrees
-let currentLook = 'hb_natural';
+let currentLook = 'none';
 let ratioNumerator = 65, ratioDenominator = 24;
+let orientation = 'h'; // 'h' = landscape (long side horizontal), 'v' = portrait
 let XPAN_RATIO = ratioNumerator / ratioDenominator;
 
 let activeTouches = 0;
@@ -833,6 +864,7 @@ function buildCurve(p){
 
 let activeLook = null;
 function buildLook(name){
+    if(name==='none') return null; // No LUT — pass-through, image untouched
     const f=FILMS[name]||FILMS.hb_natural;
     if(f.bw){
         const k=buildCurve(f.k);
@@ -954,10 +986,10 @@ function syncHistoryBtns(){
 }
 
 undoBtn.addEventListener('click',()=>{
-    if(historyIndex>0){ historyIndex--; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); }
+    if(historyIndex>0){ historyIndex--; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); triggerHaptic('light'); }
 });
 redoBtn.addEventListener('click',()=>{
-    if(historyIndex<historyStack.length-1){ historyIndex++; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); }
+    if(historyIndex<historyStack.length-1){ historyIndex++; applySnapshot(historyStack[historyIndex]); syncHistoryBtns(); triggerHaptic('light'); }
 });
 
 // ============================================================
@@ -966,19 +998,22 @@ redoBtn.addEventListener('click',()=>{
 lookSelect.addEventListener('change',()=>{
     currentLook=lookSelect.value;
     activeLook=buildLook(currentLook);
+    triggerHaptic('light');
     if(img){ pushHistory(); draw(); }
 });
 activeLook=buildLook(currentLook);
 
 // ============================================================
 //  Sliders
+//  Haptic fires only on release (change event), not on every
+//  input tick — continuous vibration during drag feels noisy.
 // ============================================================
 function bindSlider(el, displayEl, suffix, onChange){
     el.addEventListener('input',()=>{
         displayEl.textContent=el.value+suffix;
         onChange(parseFloat(el.value));
     });
-    el.addEventListener('change',()=>{ if(img) pushHistory(); });
+    el.addEventListener('change',()=>{ triggerHaptic('tick'); if(img) pushHistory(); });
 }
 
 bindSlider(rotSlider, rotDisplay, '°', v=>{
@@ -993,6 +1028,7 @@ grainSeedSlider.addEventListener('input',()=>{
     grainSeed=parseInt(grainSeedSlider.value);
     grainSeedDisplay.textContent=grainSeed;
 });
+grainSeedSlider.addEventListener('change',()=>{ triggerHaptic('tick'); if(img) pushHistory(); });
 
 // ============================================================
 //  Ratio presets & custom ratio
@@ -1002,6 +1038,7 @@ document.getElementById('ratioPresets').addEventListener('click', e=>{
     if(!btn) return;
     document.querySelectorAll('#ratioPresets button').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
+    triggerHaptic('light');
 
     const w = parseFloat(btn.dataset.w), h = parseFloat(btn.dataset.h);
     if(w===0 && h===0){
@@ -1021,11 +1058,37 @@ document.getElementById('ratioPresets').addEventListener('click', e=>{
 
 function setRatio(w, h){
     ratioNumerator=w; ratioDenominator=h;
-    XPAN_RATIO=w/h;
-    const r=(XPAN_RATIO).toFixed(2);
-    ratioDisplay.textContent=`${w} : ${h} · ${r}:1`;
+    applyOrientation();
+}
+
+function applyOrientation(){
+    // Effective ratio always keeps the LONG side aligned to orientation
+    const longSide=Math.max(ratioNumerator,ratioDenominator);
+    const shortSide=Math.min(ratioNumerator,ratioDenominator);
+    XPAN_RATIO = orientation==='h' ? longSide/shortSide : shortSide/longSide;
+    const r=(longSide/shortSide).toFixed(2);
+    ratioDisplay.textContent = orientation==='h'
+        ? `${longSide} : ${shortSide} · ${r}:1`
+        : `${shortSide} : ${longSide} · 1:${r}`;
     if(img){ resizeCanvas(); pushHistory(); }
 }
+
+const orientToggle = document.getElementById('orientToggle');
+const orientIcon   = document.getElementById('orientIcon');
+const orientLabel  = document.getElementById('orientLabel');
+
+orientToggle.addEventListener('click', ()=>{
+    orientation = orientation==='h' ? 'v' : 'h';
+    if(orientation==='v'){
+        orientIcon.innerHTML='<rect x="8" y="3" width="8" height="18" rx="1.5"/>';
+        orientLabel.textContent='Vertical';
+    } else {
+        orientIcon.innerHTML='<rect x="3" y="8" width="18" height="8" rx="1.5"/>';
+        orientLabel.textContent='Horizontal';
+    }
+    triggerHaptic('light');
+    applyOrientation();
+});
 
 // ============================================================
 //  Zoom readout
@@ -1074,6 +1137,7 @@ function loadFile(file){
             exportBtn.disabled=false; resetBtn.disabled=false;
             emptyState.classList.add('hidden');
             pushHistory(); showZoom();
+            triggerHaptic('success');
         };
         img.src=ev.target.result;
     };
@@ -1114,6 +1178,7 @@ function resetView(){
     zoom=MIN_ZOOM; rotation=0;
     rotSlider.value=0; rotDisplay.textContent='0°'; rotValEl.textContent='0°';
     centerImage(); showZoom(); pushHistory();
+    triggerHaptic('medium');
 }
 
 // ============================================================
@@ -1164,15 +1229,15 @@ function draw(){
     ctx.drawImage(img,-iw/2,-ih/2,iw,ih);
     ctx.restore();
 
-    // Live film look over crop region
-    if(activeLook){
+    // Live film look + adjustments over crop region
+    if(activeLook || brightness!==0 || contrast!==0 || saturation!==0){
         const rx=Math.max(0,Math.floor(boxX));
         const ry=Math.max(0,Math.floor(boxY));
         const rw=Math.min(canvas.width-rx, Math.ceil(boxW));
         const rh=Math.min(canvas.height-ry, Math.ceil(boxH));
         if(rw>0&&rh>0){
             const region=ctx.getImageData(rx,ry,rw,rh);
-            applyLook(region.data,activeLook,false,grainSeed);
+            if(activeLook) applyLook(region.data,activeLook,false,grainSeed);
             if(brightness!==0||contrast!==0||saturation!==0)
                 applyAdjustments(region.data,brightness,contrast,saturation);
             ctx.putImageData(region,rx,ry);
@@ -1318,17 +1383,20 @@ canvas.addEventListener('wheel',e=>{
 resetBtn.addEventListener('click',()=>{ if(img) resetView(); });
 
 // ============================================================
-//  AI Upscaling — Swin2SR 4× via Transformers.js
-//  Model: Xenova/swin2SR-realworld-sr-x4-64-bsrgan-psnr
-//  Properly hosted on HuggingFace Hub, cached in IndexedDB.
-//  Transformers.js handles ONNX Runtime + WebGPU detection.
+//  AI Upscaling — Real-ESRGAN-x4plus via ONNX Runtime Web
+//  Model: qualcomm/Real-ESRGAN-x4plus (properly hosted on the
+//  HuggingFace Hub resolve/main/ CDN — CORS-safe, unlike raw
+//  GitHub URLs). Trained specifically on real-world photo
+//  degradation, better suited to photography than compression-
+//  artifact-focused models.
+//  Tile-based inference: model expects fixed-size tiles, so large
+//  crops are processed in overlapping 128px tiles and stitched.
 // ============================================================
-const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.0/dist/transformers.min.js';
-// Two models available — real-world (photos) is better for XPAN use
-const UPSCALE_MODEL = 'Xenova/swin2SR-realworld-sr-x4-64-bsrgan-psnr';
+const ORT_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.0/dist/';
+const MODEL_URL = 'https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/main/Real-ESRGAN-x4plus.onnx';
+const MODEL_CACHE_KEY = 'xpan-realesrgan-x4plus-v1';
 
-let transformersPipeline = null; // the upscaler pipeline instance
-let transformersLib = null;      // the imported module
+let ort = null;
 
 function setProgress(pct, text){
     upscaleProgress.classList.add('show');
@@ -1344,145 +1412,235 @@ function setUpscaleError(msg){
     console.warn('[XPAN upscale]', msg);
 }
 
-async function loadTransformers(){
-    if(transformersLib) return transformersLib;
-    return new Promise((resolve, reject)=>{
-        // Use dynamic import via a module script tag
-        const s = document.createElement('script');
-        s.type = 'module';
-        s.textContent = `
-            import * as T from '${TRANSFORMERS_CDN}';
-            window.__xpanTransformers = T;
-            window.dispatchEvent(new Event('xpan-transformers-ready'));
-        `;
-        window.addEventListener('xpan-transformers-ready', ()=>{
-            transformersLib = window.__xpanTransformers;
-            resolve(transformersLib);
-        }, {once:true});
-        s.onerror = reject;
+async function loadOrt(){
+    if(ort) return ort;
+
+    // Warn early if running from a local file:// or content:// origin —
+    // some Android browsers (Brave, certain WebViews) restrict cross-origin
+    // script/fetch from non-http(s) origins, which breaks CDN loading.
+    const origin = location.protocol;
+    if(origin!=='http:' && origin!=='https:'){
+        console.warn('[XPAN upscale] Running from', origin, '— if CDN loading fails, try hosting via GitHub Pages or a local http server instead of opening the file directly.');
+    }
+
+    await new Promise((resolve, reject)=>{
+        const s=document.createElement('script');
+        s.src=ORT_CDN+'ort.min.js';
+        const timeout=setTimeout(()=>reject(new Error('Script load timed out after 15s — check network or try a different connection')), 15000);
+        s.onload=()=>{ clearTimeout(timeout); resolve(); };
+        s.onerror=()=>{ clearTimeout(timeout); reject(new Error(`Failed to load script from ${s.src} — blocked, 404, or no network`)); };
         document.head.appendChild(s);
     });
+
+    if(!window.ort){
+        throw new Error('Script loaded but window.ort is undefined — CDN may have served an error page');
+    }
+    ort = window.ort;
+    ort.env.wasm.wasmPaths = ORT_CDN;
+    return ort;
+}
+
+// Fetch the model with progress tracking, using the Cache API so
+// repeat visits skip the 67 MB download entirely (separate from
+// ONNX Runtime's own session, this caches the raw bytes).
+async function fetchModelWithProgress(){
+    const cache = await caches.open(MODEL_CACHE_KEY);
+    const cached = await cache.match(MODEL_URL);
+    if(cached){
+        setProgress(35,'Loading cached model…');
+        return await cached.arrayBuffer();
+    }
+
+    const res = await fetch(MODEL_URL);
+    if(!res.ok) throw new Error(`Model fetch failed: ${res.status}`);
+    const total = parseInt(res.headers.get('content-length')||'0',10);
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+
+    while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        chunks.push(value);
+        loaded += value.length;
+        if(total){
+            const pct = 15 + Math.round((loaded/total)*55);
+            const mb = (loaded/1024/1024).toFixed(1);
+            const totalMb = (total/1024/1024).toFixed(1);
+            setProgress(pct, `Downloading Real-ESRGAN… ${mb} / ${totalMb} MB`);
+        }
+    }
+
+    const blob = new Blob(chunks);
+    const buffer = await blob.arrayBuffer();
+    // Cache for next time
+    try{ await cache.put(MODEL_URL, new Response(blob)); }catch(e){ /* cache full or unsupported, ignore */ }
+    return buffer;
 }
 
 async function initUpscaler(){
-    setProgress(5, 'Loading Transformers.js…');
-    let T;
-    try {
-        T = await loadTransformers();
-    } catch(e) {
-        setUpscaleError('Could not load Transformers.js — check network');
+    setProgress(5, 'Loading ONNX Runtime…');
+    try{
+        await loadOrt();
+    }catch(e){
+        console.error('[XPAN upscale] ONNX Runtime load failed:', e);
+        setUpscaleError(`ORT load failed: ${e.message||e}`);
         return null;
     }
 
-    // Check WebGPU
     setProgress(12, 'Detecting GPU…');
     let device = 'wasm';
+    let executionProviders = ['wasm'];
     if(navigator.gpu){
-        try {
+        try{
             const adapter = await navigator.gpu.requestAdapter();
-            if(adapter){ device = 'webgpu'; }
-        } catch(e) { /* no webgpu */ }
+            if(adapter){ device='webgpu'; executionProviders=['webgpu','wasm']; }
+        }catch(e){ /* no webgpu */ }
     }
-    if(device === 'webgpu'){
-        gpuBadge.style.display = ''; cpuBadge.style.display = 'none';
-        useWebGPU = true;
-    } else {
-        cpuBadge.style.display = ''; gpuBadge.style.display = 'none';
+    if(device==='webgpu'){
+        gpuBadge.style.display=''; cpuBadge.style.display='none';
+        useWebGPU=true;
+    }else{
+        cpuBadge.style.display=''; gpuBadge.style.display='none';
     }
 
-    setProgress(20, `Loading Swin2SR model (first run ~25 MB, cached after)…`);
+    let modelBuffer;
+    try{
+        setProgress(15, 'Fetching model…');
+        modelBuffer = await fetchModelWithProgress();
+    }catch(e){
+        console.error('[XPAN upscale] model fetch failed:', e);
+        setUpscaleError('Model download failed — check network/CORS');
+        return null;
+    }
 
-    try {
-        // Progress callback to update bar during model download
-        const pipeline = await T.pipeline('image-to-image', UPSCALE_MODEL, {
-            dtype: 'fp32',
-            device: device,
-            progress_callback: (info) => {
-                if(info.status === 'downloading' && info.total){
-                    const pct = 20 + Math.round((info.loaded / info.total) * 70);
-                    const mb = (info.loaded / 1024 / 1024).toFixed(1);
-                    const total = (info.total / 1024 / 1024).toFixed(1);
-                    setProgress(pct, `Downloading model… ${mb} / ${total} MB`);
-                } else if(info.status === 'loading'){
-                    setProgress(92, 'Initialising model…');
-                }
-            }
-        });
-
-        setProgress(100, 'Swin2SR ready');
+    try{
+        setProgress(75, 'Initialising session…');
+        const session = await ort.InferenceSession.create(modelBuffer, {executionProviders});
+        setProgress(100, 'Real-ESRGAN ready');
         upscaleBadge.className='show ready';
         upscaleBadge.style.display='block';
-        upscaleBadge.textContent=`⬆ Swin2SR 4× ${device==='webgpu'?'GPU':'CPU'} READY`;
+        upscaleBadge.textContent=`⬆ Real-ESRGAN 4× ${device==='webgpu'?'GPU':'CPU'} READY`;
         setTimeout(()=>upscaleProgress.classList.remove('show'), 1200);
-        return pipeline;
-
-    } catch(e) {
-        console.error('[XPAN upscale] model init failed:', e);
-        setUpscaleError('Model load failed — see console. Will export at native res.');
+        return session;
+    }catch(e){
+        console.error('[XPAN upscale] session init failed:', e);
+        // WebGPU session creation can fail even when adapter exists — retry on WASM
+        if(device==='webgpu'){
+            try{
+                setProgress(85, 'WebGPU failed, retrying on CPU…');
+                const session = await ort.InferenceSession.create(modelBuffer, {executionProviders:['wasm']});
+                gpuBadge.style.display='none'; cpuBadge.style.display='';
+                useWebGPU=false;
+                setProgress(100, 'Real-ESRGAN ready (CPU)');
+                upscaleBadge.className='show ready';
+                upscaleBadge.style.display='block';
+                upscaleBadge.textContent='⬆ Real-ESRGAN 4× CPU READY';
+                setTimeout(()=>upscaleProgress.classList.remove('show'), 1200);
+                return session;
+            }catch(e2){
+                setUpscaleError('Model init failed on GPU and CPU');
+                return null;
+            }
+        }
+        setUpscaleError('Model session init failed');
         return null;
     }
 }
 
 async function runUpscale(cropCanvas){
-    const T = transformersLib;
-    const W = cropCanvas.width, H = cropCanvas.height;
+    const W=cropCanvas.width, H=cropCanvas.height;
+    const TILE=128, OVERLAP=8, SCALE=4;
 
-    // Convert canvas → blob → File (transformers.js pipeline accepts File/Blob/URL)
-    const blob = await new Promise(res => cropCanvas.toBlob(res, 'image/png'));
+    const outCanvas=document.createElement('canvas');
+    outCanvas.width=W*SCALE; outCanvas.height=H*SCALE;
+    const outCtx=outCanvas.getContext('2d');
 
-    setProgress(30, `Running Swin2SR on ${W}×${H}px crop…`);
+    let tilesTotal=0;
+    for(let ty=0;ty<H;ty+=TILE-OVERLAP) for(let tx=0;tx<W;tx+=TILE-OVERLAP) tilesTotal++;
+    let tilesDone=0;
 
-    // For large images, tile manually because Swin2SR has a fixed receptive field
-    // but transformers.js handles this internally for this model
-    const output = await transformersPipeline(blob, {
-        // progress callback not available at inference time for this pipeline
-    });
+    setProgress(30, `Upscaling 0/${tilesTotal} tiles…`);
 
-    setProgress(90, 'Converting output…');
+    for(let ty=0;ty<H;ty+=TILE-OVERLAP){
+        for(let tx=0;tx<W;tx+=TILE-OVERLAP){
+            const tw=Math.min(TILE,W-tx), th=Math.min(TILE,H-ty);
 
-    // output is a RawImage — convert to canvas
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = output.width;
-    outCanvas.height = output.height;
-    const outCtx = outCanvas.getContext('2d');
+            const tileCanvas=document.createElement('canvas');
+            tileCanvas.width=tw; tileCanvas.height=th;
+            tileCanvas.getContext('2d').drawImage(cropCanvas,tx,ty,tw,th,0,0,tw,th);
+            const tilePixels=tileCanvas.getContext('2d').getImageData(0,0,tw,th).data;
 
-    // RawImage.data is Uint8Array [R,G,B,R,G,B,...] (no alpha)
-    const rgba = new Uint8ClampedArray(output.width * output.height * 4);
-    const src = output.data;
-    const channels = output.channels; // 3 for RGB
+            // Build NCHW float32 tensor, normalized 0..1
+            const tensor=new Float32Array(3*th*tw);
+            for(let y=0;y<th;y++) for(let x=0;x<tw;x++){
+                const si=(y*tw+x)*4;
+                tensor[0*th*tw+y*tw+x]=tilePixels[si]/255;
+                tensor[1*th*tw+y*tw+x]=tilePixels[si+1]/255;
+                tensor[2*th*tw+y*tw+x]=tilePixels[si+2]/255;
+            }
+            const inputName = onnxSession.inputNames[0];
+            const inputTensor=new ort.Tensor('float32',tensor,[1,3,th,tw]);
 
-    for(let i = 0; i < output.width * output.height; i++){
-        rgba[i*4]   = src[i*channels];
-        rgba[i*4+1] = src[i*channels+1];
-        rgba[i*4+2] = src[i*channels+2];
-        rgba[i*4+3] = 255;
+            let outTensor;
+            try{
+                const feeds={}; feeds[inputName]=inputTensor;
+                const result=await onnxSession.run(feeds);
+                outTensor=result[onnxSession.outputNames[0]];
+            }catch(e){
+                console.warn('[XPAN upscale] tile failed, falling back to bicubic for this tile:', e);
+                const tc=document.createElement('canvas');
+                tc.width=tw*SCALE; tc.height=th*SCALE;
+                tc.getContext('2d').drawImage(tileCanvas,0,0,tw*SCALE,th*SCALE);
+                outCtx.drawImage(tc,tx*SCALE,ty*SCALE);
+                tilesDone++;
+                continue;
+            }
+
+            const OW=tw*SCALE, OH=th*SCALE;
+            const outData=outTensor.data;
+            const rgba=new Uint8ClampedArray(OW*OH*4);
+            for(let y=0;y<OH;y++) for(let x=0;x<OW;x++){
+                const di=(y*OW+x)*4;
+                rgba[di]  =Math.min(255,Math.max(0,outData[0*OH*OW+y*OW+x]*255));
+                rgba[di+1]=Math.min(255,Math.max(0,outData[1*OH*OW+y*OW+x]*255));
+                rgba[di+2]=Math.min(255,Math.max(0,outData[2*OH*OW+y*OW+x]*255));
+                rgba[di+3]=255;
+            }
+            const tmpTile=document.createElement('canvas');
+            tmpTile.width=OW; tmpTile.height=OH;
+            tmpTile.getContext('2d').putImageData(new ImageData(rgba,OW,OH),0,0);
+            outCtx.drawImage(tmpTile,tx*SCALE,ty*SCALE);
+
+            tilesDone++;
+            const pct=30+Math.round((tilesDone/tilesTotal)*60);
+            setProgress(pct, `Upscaling ${tilesDone}/${tilesTotal} tiles…`);
+        }
     }
 
-    outCtx.putImageData(new ImageData(rgba, output.width, output.height), 0, 0);
-    setProgress(100, 'Done');
+    setProgress(95, 'Finalising…');
     return outCanvas;
 }
 
 upscaleToggle.addEventListener('change', async()=>{
+    triggerHaptic('light');
     if(!upscaleToggle.checked) return;
-    if(!transformersPipeline && !onnxLoading){
-        onnxLoading = true;
+    if(!onnxSession && !onnxLoading){
+        onnxLoading=true;
         upscaleProgress.classList.add('show');
-        transformersPipeline = await initUpscaler();
-        // also set legacy onnxSession so export check works
-        onnxSession = transformersPipeline;
-        onnxLoading = false;
-        if(!transformersPipeline){
-            upscaleToggle.checked = false;
-        }
+        onnxSession = await initUpscaler();
+        onnxLoading=false;
+        if(!onnxSession){ upscaleToggle.checked=false; }
     }
 });
+
 
 // ============================================================
 //  Export
 // ============================================================
 exportBtn.addEventListener('click', async()=>{
     if(!img)return;
+    triggerHaptic('medium');
 
     // Render the full crop at native image resolution
     const rad=rotation*Math.PI/180;
@@ -1524,7 +1682,7 @@ exportBtn.addEventListener('click', async()=>{
 
     // AI Upscale if enabled and model loaded
     let finalCanvas=outCanvas;
-    if(upscaleToggle.checked && transformersPipeline){
+    if(upscaleToggle.checked && onnxSession){
         exportBtn.disabled=true;
         exportBtn.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="M8 12l4 4 4-4"/><path d="M4 20h16"/></svg> Upscaling…`;
         try{
@@ -1545,6 +1703,7 @@ exportBtn.addEventListener('click', async()=>{
     link.download=`xpan_${currentLook}_seed${grainSeed}_${Date.now()}.jpg`;
     link.href=finalCanvas.toDataURL('image/jpeg',0.95);
     link.click();
+    triggerHaptic('success');
 });
 </script>
 </body>
