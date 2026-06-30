@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>XPAN Interactive Cropper v2</title>
+    <title>XPAN Interactive Cropper V3</title>
     <style>
         :root {
-            --bg: #0c0c0d;
+            --bg: #060607;
             --panel: #161618;
             --panel-2: #1d1d20;
             --line: #2c2c30;
@@ -30,7 +30,7 @@
 
         body {
             font-family: var(--sans);
-            background: radial-gradient(1200px 600px at 50% -10%, #18181b 0%, transparent 60%), var(--bg);
+            background: var(--bg);
             color: var(--text);
             margin: 0;
             padding: 18px 14px 40px;
@@ -366,11 +366,12 @@
         <div class="ctl-block grow">
             <span class="field-label">Film Look</span>
             <select id="lookSelect" class="look-select">
-                <optgroup label="─ Hasselblad">
-                    <option value="hb_natural" selected>Natural Color</option>
+                <option value="none" selected>None — No LUT (Untouched)</option>
+                <optgroup label="Hasselblad">
+                    <option value="hb_natural">Natural Color</option>
                     <option value="hb_bw">XPan B&amp;W</option>
                 </optgroup>
-                <optgroup label="─ Kodak Color">
+                <optgroup label="Kodak Color">
                     <option value="portra400">Portra 400</option>
                     <option value="portra160">Portra 160</option>
                     <option value="gold200">Gold 200</option>
@@ -379,12 +380,12 @@
                     <option value="ektachrome">Ektachrome E100</option>
                     <option value="kodachrome64">Kodachrome 64</option>
                 </optgroup>
-                <optgroup label="─ Kodak B&amp;W">
+                <optgroup label="Kodak B&amp;W">
                     <option value="trix400">Tri-X 400</option>
                     <option value="tmax100">T-MAX 100</option>
                     <option value="tmax3200">T-MAX P3200</option>
                 </optgroup>
-                <optgroup label="─ Fujifilm Color">
+                <optgroup label="Fujifilm Color">
                     <option value="fuji_provia">Provia 100F (RDP III)</option>
                     <option value="fuji_velvia50">Velvia 50</option>
                     <option value="fuji_velvia100">Velvia 100</option>
@@ -392,17 +393,17 @@
                     <option value="fuji_superia400">Superia 400</option>
                     <option value="fuji_400h">Pro 400H</option>
                 </optgroup>
-                <optgroup label="─ Fujifilm B&amp;W">
+                <optgroup label="Fujifilm B&amp;W">
                     <option value="fuji_acros">Acros 100 II</option>
                     <option value="fuji_neopan400">Neopan 400</option>
                 </optgroup>
-                <optgroup label="─ Ilford B&amp;W">
+                <optgroup label="Ilford B&amp;W">
                     <option value="ilford_hp5">HP5 Plus 400</option>
                     <option value="ilford_delta3200">Delta 3200</option>
                     <option value="ilford_fp4">FP4 Plus 125</option>
                     <option value="ilford_xp2">XP2 Super 400</option>
                 </optgroup>
-                <optgroup label="─ Cinematic">
+                <optgroup label="Cinematic">
                     <option value="cinestill800t">CineStill 800T</option>
                     <option value="cinestill50d">CineStill 50D</option>
                     <option value="vision3_500t">Vision3 500T</option>
@@ -428,6 +429,12 @@
                 <span class="ratio-sep">:</span>
                 <input type="number" id="ratioH" class="ratio-input" min="1" max="99" value="24" placeholder="H">
             </div>
+            <button id="orientBtn" class="btn" style="flex:0 0 auto;min-width:auto;padding:9px 14px;" title="Toggle landscape / portrait — flips the ratio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="9" width="11" height="7" rx="1.5"/><rect x="15" y="4" width="6" height="16" rx="1.5"/>
+                </svg>
+                <span id="orientLabel">Landscape</span>
+            </button>
         </div>
     </div>
 
@@ -479,8 +486,8 @@
             </div>
         </div>
         <div class="ai-desc">
-            Runs <b>Swin2SR</b> (realworld 4× variant) on the cropped region before export — prevents resolution loss from cropping a small section of a large image.
-            Model runs entirely <b>in-browser</b> via Transformers.js + ONNX Runtime. First run downloads ~25 MB and caches to IndexedDB — instant on next use.
+            Runs <b>Swin2SR</b> (realworld 4×, full fp32 model) on the cropped region before export — prevents resolution loss from cropping a small section of a large image.
+            Model runs entirely <b>in-browser</b> via Transformers.js + ONNX Runtime. First run downloads ~53 MB and caches to IndexedDB — instant on next use.
         </div>
         <div class="progress-wrap" id="upscaleProgress">
             <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
@@ -517,7 +524,7 @@
     </div>
 </div>
 
-<footer>XPAN Panoramic · 65×24mm Simulation · v2.0 By ❤️ G.H.O.S.T</footer>
+<footer>XPAN Panoramic · 65×24mm Simulation · V3.0 By ❤️ G.H.O.S.T</footer>
 
 <script>
 // ============================================================
@@ -545,6 +552,8 @@ const ratioDisplay  = document.getElementById('ratioDisplay');
 const ratioW        = document.getElementById('ratioW');
 const ratioH        = document.getElementById('ratioH');
 const customRatioWrap = document.getElementById('customRatioWrap');
+const orientBtn     = document.getElementById('orientBtn');
+const orientLabel   = document.getElementById('orientLabel');
 const gpuBadge      = document.getElementById('gpuBadge');
 const cpuBadge      = document.getElementById('cpuBadge');
 const canvasContainer = document.getElementById('canvasContainer');
@@ -568,9 +577,10 @@ let img = null;
 let zoom = 1;
 let panX = 0, panY = 0;
 let rotation = 0;     // degrees
-let currentLook = 'hb_natural';
+let currentLook = 'none';
 let ratioNumerator = 65, ratioDenominator = 24;
 let XPAN_RATIO = ratioNumerator / ratioDenominator;
+let orientation = 'landscape';   // 'landscape' | 'portrait' — flips effective ratio
 
 let activeTouches = 0;
 let lastTouchX = 0, lastTouchY = 0;
@@ -626,6 +636,9 @@ function mulberry32(seed) {
 //    offset   final lift (colour cast)
 // ============================================================
 const FILMS = {
+    // ── None — true passthrough (no curve, no grain, no cast) ─
+    none: { none:true, grain:0 },
+
     // ── Hasselblad ──────────────────────────────────────────
     hb_natural: {
         sat:1.06, grain:4,
@@ -834,6 +847,9 @@ function buildCurve(p){
 let activeLook = null;
 function buildLook(name){
     const f=FILMS[name]||FILMS.hb_natural;
+    if(f.none){
+        return { identity:true, grain:0 };   // skipped entirely in applyLook
+    }
     if(f.bw){
         const k=buildCurve(f.k);
         return{bw:true,r:k,g:k,b:k,sat:0,grain:f.grain||0,
@@ -851,7 +867,7 @@ function buildLook(name){
 }
 
 function applyLook(data, look, withGrain, seed){
-    if(!look)return;
+    if(!look || look.identity)return;   // 'None' look = untouched pixels
     const lr=look.r,lg=look.g,lb=look.b,sat=look.sat,grain=look.grain;
     const[lR,lG,lB]=look.lum;
     let rng = withGrain && grain ? mulberry32(seed^0xDEADBEEF) : null;
@@ -995,6 +1011,28 @@ grainSeedSlider.addEventListener('input',()=>{
 });
 
 // ============================================================
+//  Haptic feedback (mobile; silent no-op where unsupported,
+//  e.g. iOS Safari which lacks the Vibration API)
+// ============================================================
+const HAPTICS_OK = typeof navigator !== 'undefined' && 'vibrate' in navigator;
+function haptic(ms){ if(HAPTICS_OK){ try{ navigator.vibrate(ms); }catch(e){} } }
+
+// Buttons, segmented controls, file picker, toggle switch
+document.addEventListener('click', e=>{
+    if(e.target.closest('button, .file-btn, .toggle')) haptic(12);
+});
+
+// Sliders: subtle tick while dragging (time-throttled) + confirm on release
+let lastSliderHaptic = 0;
+[rotSlider, brightSlider, contrastSlider, satSlider, grainSeedSlider].forEach(s=>{
+    s.addEventListener('input',()=>{
+        const now = Date.now();
+        if(now - lastSliderHaptic > 40){ haptic(3); lastSliderHaptic = now; }
+    });
+    s.addEventListener('change',()=>haptic(10));
+});
+
+// ============================================================
 //  Ratio presets & custom ratio
 // ============================================================
 document.getElementById('ratioPresets').addEventListener('click', e=>{
@@ -1019,13 +1057,32 @@ document.getElementById('ratioPresets').addEventListener('click', e=>{
     });
 });
 
+function currentRatioWH(){
+    return orientation==='landscape'
+        ? [ratioNumerator, ratioDenominator]
+        : [ratioDenominator, ratioNumerator];
+}
+
+function applyOrientation(doHistory){
+    const [ew, eh] = currentRatioWH();
+    XPAN_RATIO = ew / eh;
+    ratioDisplay.textContent = `${ew} : ${eh} · ${XPAN_RATIO.toFixed(2)}:1`;
+    if(orientLabel) orientLabel.textContent = orientation==='landscape' ? 'Landscape' : 'Portrait';
+    if(img){ resizeCanvas(); if(doHistory) pushHistory(); }
+}
+
 function setRatio(w, h){
     ratioNumerator=w; ratioDenominator=h;
-    XPAN_RATIO=w/h;
-    const r=(XPAN_RATIO).toFixed(2);
-    ratioDisplay.textContent=`${w} : ${h} · ${r}:1`;
-    if(img){ resizeCanvas(); pushHistory(); }
+    applyOrientation(true);
 }
+
+orientBtn.addEventListener('click',()=>{
+    orientation = orientation==='landscape' ? 'portrait' : 'landscape';
+    applyOrientation(true);
+});
+
+// Sync display + label once on load (no image yet, so no resize)
+applyOrientation(false);
 
 // ============================================================
 //  Zoom readout
@@ -1390,11 +1447,13 @@ async function initUpscaler(){
         cpuBadge.style.display = ''; gpuBadge.style.display = 'none';
     }
 
-    setProgress(20, `Loading Swin2SR model (first run ~25 MB, cached after)…`);
+    setProgress(20, `Loading Swin2SR model (first run ~53 MB, cached after)…`);
 
     try {
         // Progress callback to update bar during model download
         const pipeline = await T.pipeline('image-to-image', UPSCALE_MODEL, {
+            // Full-precision standard model (model.onnx ~53 MB) — NOT the
+            // quantized ~21 MB "nano" build. Slower but highest quality.
             dtype: 'fp32',
             device: device,
             progress_callback: (info) => {
@@ -1543,7 +1602,7 @@ exportBtn.addEventListener('click', async()=>{
 
     const link=document.createElement('a');
     link.download=`xpan_${currentLook}_seed${grainSeed}_${Date.now()}.jpg`;
-    link.href=finalCanvas.toDataURL('image/jpeg',0.95);
+    link.href=finalCanvas.toDataURL('image/jpeg',1.0);
     link.click();
 });
 </script>
